@@ -13,8 +13,10 @@ which direction it moved
 
 Left encoder A	GPIO5	29 (phsyical pin)
 Left encoder B	GPIO6	31
-Right encoder A	GPIO13	33
+Right encoder A	GPIO20	38
 Right encoder B	GPIO16	36
+
+> GPIO13 (pin 33) was the original choice for Right encoder A, but `3Nov-latest.py` now uses it as the left motor's ENA (PWM). Use GPIO20 (pin 38) instead. See pins.md for all pins in use.
 
 - If your encoder is a common 5-V encoder, do not automatically connect its output directly to the Pi GPIO. Raspberry Pi GPIO is 3.3-V logic and is not 5-V tolerant.
 
@@ -24,7 +26,7 @@ Encoder B → GPIO6  (physical pin 31)
 GND       → Pi GND
 VCC       → appropriate encoder supply
 ## right encoder
-Encoder A → GPIO13 (physical pin 33)
+Encoder A → GPIO20 (physical pin 38)
 Encoder B → GPIO16 (physical pin 36)
 GND       → Pi GND
 VCC       → appropriate encoder supply
@@ -76,3 +78,20 @@ robot.turn(45)
 robot.turn(90)
 ```
 - measure the angle turned manually using a protractor
+
+# Encoders in the running robot (18 Nov 2026)
+
+The encoders are expected on GPIO5/6 (left) and GPIO20/16 (right), at 3.3 V logic. The sensor process reads them with gpiozero
+`RotaryEncoder` and publishes the counts at 50 Hz. If they can't be opened, the robot runs without them.
+
+1. Lift the robot and run `python calibrate_encoders.py --diameter <metres> --revolutions 10`.
+2. It stores counts per revolution and direction in `data/encoders.json`.
+
+| Without calibration | With calibration |
+|---|---|
+| Stuck-wheel detection works | Also: the map pose uses measured wheel travel instead of motor commands |
+
+**Stuck wheel:** a wheel commanded at 20% or more whose count changes by fewer than 2 for 0.8 s is stuck, provided that encoder has
+been seen working. The robot stops, cancels its commands, says "Oops, looks like my wheel is stuck" and shows a sad face.
+With gpiozero, Python handles each edge, so very high-resolution encoders may lose counts. If that happens, use `pigpio` or a hardware counter.
+These paths have run in simulation and unit tests only.

@@ -1,1 +1,0 @@
-- GPIO Zero: the easiest starting point for this project and is the Raspberry Pi ecosystem's high-level Python GPIO library

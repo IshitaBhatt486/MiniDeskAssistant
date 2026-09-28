@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+
+# deskbot
+.venv/
+models/
+*.pt
+
+# test_e2e.py output
+e2e_results/
+benchmarks/data/
+benchmarks/results/
+outputs/
+digital_twin/results/*
+!digital_twin/results/README.md
+robot_shell_settings*.json
+
+# deskbot assistant: settings, TLS certificate, API keys
+data/
+secrets.env
+.env
+legacy/
