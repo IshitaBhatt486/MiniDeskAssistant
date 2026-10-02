@@ -1,0 +1,4 @@
+# Core (mapping, dashboard, CLI). On the Pi, gpiozero + picamera2 come from apt (scripts/setup.sh).
+numpy>=1.24
+rich>=13
+questionary>=2.0
