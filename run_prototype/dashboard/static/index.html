@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Desk Robot Control</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="13" rx="4"/>
+        <circle cx="9.5" cy="11.5" r="1.4"/><circle cx="14.5" cy="11.5" r="1.4"/>
+        <path d="M12 5V2.5"/>
+      </svg>
+      <span class="brand-name">Desk Assistant</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-sub">control panel</span>
+    </div>
+    <div class="topbar-meta">
+      <span class="pill" id="mode-pill">—</span>
+      <span class="conn" id="conn" data-state="connecting"><i></i><span id="conn-text">Connecting</span></span>
+      <span class="meta-item"><span class="meta-label">Uptime</span> <span class="mono" id="uptime">—</span></span>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- Status -->
+    <section class="card card-status">
+      <header class="card-head">
+        <h2>Status</h2>
+        <span class="card-meta mono" id="move-count">—</span>
+      </header>
+      <div class="status-main">
+        <span class="status-dot" id="status-dot"></span>
+        <div>
+          <div class="status-word" id="status-word">—</div>
+          <div class="status-sub" id="status-sub">Waiting for the robot…</div>
+        </div>
+      </div>
+      <div class="progress" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-label mono" id="progress-label">&nbsp;</div>
+      <div class="clear">
+        <div class="clear-head">Clear to move</div>
+        <ul class="clear-grid" id="clear-grid">
+          <li data-dir="forward"><i></i><span class="clear-dir">Forward</span><span class="clear-why">front IR + sonar</span></li>
+          <li data-dir="backward"><i></i><span class="clear-dir">Backward</span><span class="clear-why">rear IR</span></li>
+          <li data-dir="left"><i></i><span class="clear-dir">Left</span><span class="clear-why">both IR</span></li>
+          <li data-dir="right"><i></i><span class="clear-dir">Right</span><span class="clear-why">both IR</span></li>
+        </ul>
+      </div>
+      <dl class="stats">
+        <div><dt>Moves</dt><dd class="mono" id="stat-moves">0</dd></div>
+        <div><dt>Completed</dt><dd class="mono" id="stat-completed">0</dd></div>
+        <div><dt>Safety stops</dt><dd class="mono" id="stat-safety">0</dd></div>
+        <div><dt>Manual stops</dt><dd class="mono" id="stat-user">0</dd></div>
+      </dl>
+    </section>
+
+    <!-- Drive -->
+    <section class="card card-drive">
+      <header class="card-head">
+        <h2>Drive</h2>
+        <span class="card-meta">Arrows / WASD · Space stops</span>
+      </header>
+      <div class="drive-body">
+        <div class="dpad" role="group" aria-label="Direction">
+          <button class="dpad-btn" data-dir="forward" style="grid-area: up" aria-label="Forward" title="Forward (↑ / W)">
+            <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>
+          </button>
+          <button class="dpad-btn" data-dir="left" style="grid-area: left" aria-label="Turn left" title="Turn left (← / A)">
+            <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button class="dpad-btn dpad-stop" id="stop-btn" style="grid-area: stop" aria-label="Stop" title="Stop (Space)">
+            Stop
+          </button>
+          <button class="dpad-btn" data-dir="right" style="grid-area: right" aria-label="Turn right" title="Turn right (→ / D)">
+            <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button class="dpad-btn" data-dir="backward" style="grid-area: down" aria-label="Backward" title="Backward (↓ / S)">
+            <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div class="field">
+          <label class="field-label" for="duration-input">Duration</label>
+          <div class="segmented" id="duration-presets">
+            <button data-duration="0.5">0.5 s</button>
+            <button data-duration="1" class="is-selected">1 s</button>
+            <button data-duration="2">2 s</button>
+            <button data-duration="5">5 s</button>
+          </div>
+          <div class="input-suffix">
+            <input type="number" id="duration-input" min="0.1" max="10" step="0.1" value="1" inputmode="decimal">
+            <span>seconds</span>
+          </div>
+        </div>
+      </div>
+      <p class="form-msg" id="drive-msg" role="status"></p>
+    </section>
+
+    <!-- Ultrasonic -->
+    <section class="card card-distance">
+      <header class="card-head">
+        <h2>Ultrasonic</h2>
+        <span class="card-meta">HC-SR04 · front</span>
+      </header>
+      <div class="readout">
+        <span class="readout-value mono" id="distance-value">—</span>
+        <span class="readout-unit">cm</span>
+        <span class="tag" id="distance-tag">—</span>
+      </div>
+      <svg class="spark" id="spark" viewBox="0 0 300 96" preserveAspectRatio="none" aria-label="Distance over the last 15 seconds">
+        <line class="spark-grid" x1="0" x2="300" y1="0.5" y2="0.5"/>
+        <line class="spark-grid" x1="0" x2="300" y1="48" y2="48"/>
+        <line class="spark-grid" x1="0" x2="300" y1="95.5" y2="95.5"/>
+        <rect class="spark-zone" id="spark-zone" x="0" width="300" y="76" height="20"/>
+        <line class="spark-threshold" id="spark-threshold" x1="0" x2="300" y1="76" y2="76"/>
+        <path class="spark-area" id="spark-area" d=""/>
+        <path class="spark-line" id="spark-line" d=""/>
+      </svg>
+      <div class="spark-axis mono">
+        <span>−15 s</span>
+        <span id="spark-scale">0–100 cm</span>
+        <span>now</span>
+      </div>
+      <dl class="stats stats-3">
+        <div><dt>Min · 15 s</dt><dd class="mono" id="us-min">—</dd></div>
+        <div><dt>Average</dt><dd class="mono" id="us-avg">—</dd></div>
+        <div><dt>Obstacle stops</dt><dd class="mono" id="us-stops">0</dd></div>
+      </dl>
+    </section>
+
+    <!-- Sonar array (server_multisonar.py only) -->
+    <section class="card card-sonars" id="sonar-card" hidden>
+      <header class="card-head">
+        <h2>Sonar array</h2>
+        <span class="card-meta">4 × HC-SR04 · top view</span>
+      </header>
+      <div class="sonar-body">
+        <svg class="sonar-view" viewBox="-112 -96 224 192" aria-label="Distances around the robot, forward is up">
+          <circle class="sonar-ring" r="40"/>
+          <circle class="sonar-ring" r="64"/>
+          <g id="sonar-beams"></g>
+          <rect class="rt-wheel" x="-36" y="-14" width="7" height="28" rx="2"/>
+          <rect class="rt-wheel" x="29" y="-14" width="7" height="28" rx="2"/>
+          <rect class="rt-body" x="-28" y="-30" width="56" height="60" rx="18"/>
+          <path class="rt-heading" d="M-6 -2l6-8 6 8"/>
+        </svg>
+        <ul class="sensor-list" id="sonar-list"></ul>
+      </div>
+      <dl class="stats stats-3">
+        <div><dt>Closest</dt><dd class="mono" id="sonar-closest">—</dd></div>
+        <div><dt>Rear stops</dt><dd class="mono" id="sonar-rear-stops">0</dd></div>
+        <div><dt>Side stops</dt><dd class="mono" id="sonar-side-stops">0</dd></div>
+      </dl>
+    </section>
+
+    <!-- Edge sensors -->
+    <section class="card card-edges">
+      <header class="card-head">
+        <h2>Edge sensors</h2>
+        <span class="card-meta">IR · LOW = floor</span>
+      </header>
+      <div class="edges-body">
+        <svg class="robot-top" viewBox="0 0 120 160" aria-hidden="true">
+          <rect class="rt-wheel" x="6" y="58" width="12" height="44" rx="3"/>
+          <rect class="rt-wheel" x="102" y="58" width="12" height="44" rx="3"/>
+          <rect class="rt-body" x="20" y="22" width="80" height="116" rx="30"/>
+          <path class="rt-heading" d="M52 74l8-10 8 10"/>
+          <line class="rt-heading" x1="60" y1="66" x2="60" y2="96"/>
+          <circle class="rt-sonar" cx="46" cy="22" r="6"/>
+          <circle class="rt-sonar" cx="74" cy="22" r="6"/>
+          <circle class="rt-ir" id="ir-front-dot" cx="60" cy="40" r="7"/>
+          <circle class="rt-ir" id="ir-back-dot" cx="60" cy="124" r="7"/>
+        </svg>
+        <ul class="sensor-list">
+          <li>
+            <div>
+              <div class="sensor-name">Front</div>
+              <div class="sensor-pin mono">GPIO 19</div>
+            </div>
+            <span class="tag" id="ir-front-tag">—</span>
+          </li>
+          <li>
+            <div>
+              <div class="sensor-name">Rear</div>
+              <div class="sensor-pin mono">GPIO 26</div>
+            </div>
+            <span class="tag" id="ir-back-tag">—</span>
+          </li>
+        </ul>
+      </div>
+      <dl class="stats stats-3">
+        <div><dt>Front edge stops</dt><dd class="mono" id="edge-front">0</dd></div>
+        <div><dt>Rear edge stops</dt><dd class="mono" id="edge-rear">0</dd></div>
+        <div><dt>Turn edge stops</dt><dd class="mono" id="edge-turn">0</dd></div>
+      </dl>
+    </section>
+
+    <!-- Occupancy map (server_mapping.py only) -->
+    <section class="card card-map" id="map-card" hidden>
+      <header class="card-head">
+        <h2>Occupancy map</h2>
+        <button class="btn-ghost" id="map-reset">Clear map</button>
+      </header>
+      <div class="map-body">
+        <canvas class="map-canvas" id="map-canvas" width="480" height="480" aria-label="Occupancy grid, start pose at the centre, 1 m grid lines"></canvas>
+        <div class="map-side">
+          <ul class="map-legend">
+            <li><i class="sw sw-free"></i>Free</li>
+            <li><i class="sw sw-occ"></i>Obstacle (sonar)</li>
+            <li><i class="sw sw-edge"></i>Desk edge (IR)</li>
+            <li><i class="sw sw-unk"></i>Unknown</li>
+            <li><i class="sw sw-trail"></i>Path</li>
+          </ul>
+          <dl class="map-stats">
+            <div><dt>Pose estimate</dt><dd class="mono" id="map-pose">—</dd></div>
+            <div><dt>Mapped area</dt><dd class="mono" id="map-area">—</dd></div>
+            <div><dt>Obstacle / edge cells</dt><dd class="mono" id="map-occ">—</dd></div>
+            <div><dt>Update rate</dt><dd class="mono" id="map-rate">—</dd></div>
+            <div><dt>Grid</dt><dd class="mono" id="map-grid">—</dd></div>
+          </dl>
+          <p class="map-note">Pose is dead-reckoned from motor commands, so it drifts over time. Clear the map to restart from the robot's current position.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Simulation map (sim mode only) -->
+    <section class="card card-sim" id="sim-card" hidden>
+      <header class="card-head">
+        <h2>Desk</h2>
+        <button class="btn-ghost" id="sim-reset">Reset position</button>
+      </header>
+      <svg class="desk" id="desk" viewBox="-50 -50 1300 800" aria-label="Simulated desk, top view">
+        <rect class="desk-surface" x="0" y="0" width="1200" height="700"/>
+        <line class="desk-wall" x1="0" y1="2" x2="1200" y2="2"/>
+        <g id="desk-obstacles"></g>
+        <g id="desk-rays"></g>
+        <g id="desk-robot">
+          <circle class="desk-robot-body" r="75"/>
+          <path class="desk-robot-nose" d="M30 -22 L62 0 L30 22"/>
+          <circle class="desk-ir" id="desk-ir-front" cx="70" cy="0" r="12"/>
+          <circle class="desk-ir" id="desk-ir-back" cx="-70" cy="0" r="12"/>
+        </g>
+      </svg>
+      <div class="desk-legend">
+        <span><i class="lg lg-wall"></i>Wall</span>
+        <span><i class="lg lg-edge"></i>Drop on three sides</span>
+        <span class="mono" id="desk-pose">—</span>
+      </div>
+    </section>
+
+    <!-- Configuration -->
+    <section class="card card-config">
+      <header class="card-head">
+        <h2>Configuration</h2>
+        <span class="card-meta">Applied live</span>
+      </header>
+      <div class="slider-field">
+        <div class="slider-head">
+          <label for="speed-input">Motor speed</label>
+          <span class="mono" id="speed-value">—</span>
+        </div>
+        <input type="range" id="speed-input" min="10" max="100" step="5" value="50">
+      </div>
+      <div class="slider-field">
+        <div class="slider-head">
+          <label for="stopdist-input">Obstacle stop distance</label>
+          <span class="mono" id="stopdist-value">—</span>
+        </div>
+        <input type="range" id="stopdist-input" min="5" max="50" step="1" value="20">
+      </div>
+      <dl class="kv">
+        <div><dt>Safety check</dt><dd class="mono" id="cfg-interval">—</dd></div>
+        <div><dt>Floor reading</dt><dd class="mono" id="cfg-floor">—</dd></div>
+        <div><dt>Sonar range</dt><dd class="mono" id="cfg-range">—</dd></div>
+        <div><dt>Longest move</dt><dd class="mono" id="cfg-maxdur">—</dd></div>
+      </dl>
+    </section>
+
+    <!-- Event log -->
+    <section class="card card-log">
+      <header class="card-head">
+        <h2>Event log</h2>
+        <span class="card-meta mono" id="log-count">—</span>
+      </header>
+      <ol class="log" id="log"></ol>
+    </section>
+
+    <!-- Wiring -->
+    <section class="card card-pins">
+      <header class="card-head">
+        <h2>Wiring</h2>
+        <span class="card-meta">BCM numbering</span>
+      </header>
+      <table class="pins">
+        <thead><tr><th>Signal</th><th>GPIO</th><th>Pin</th></tr></thead>
+        <tbody id="pins-body"></tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
