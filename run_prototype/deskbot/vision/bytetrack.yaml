@@ -1,0 +1,12 @@
+# ByteTrack settings for the desk robot (Ultralytics tracker format, 8.4.x keys).
+# Based on ultralytics/cfg/trackers/bytetrack.yaml, tuned for ~10-15 detector fps on a Pi 4.
+# The detector runs with conf = 0.1 (VisionConfig.conf) so the second, low-score stage below
+# actually receives boxes - that is what lets ByteTrack keep a track through blur/partial occlusion.
+
+tracker_type: bytetrack
+track_high_thresh: 0.35   # first-stage matches; also the minimum score of a confident box
+track_low_thresh: 0.1     # second stage: low-score boxes may only continue an existing track
+new_track_thresh: 0.45    # a new object needs a clearly confident box (fewer false objects on the map)
+track_buffer: 45          # frames a lost track is kept (~3 s at 15 fps) so IDs survive short occlusions
+match_thresh: 0.8
+fuse_score: True
