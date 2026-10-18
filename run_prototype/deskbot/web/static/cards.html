@@ -1,0 +1,71 @@
+    <!-- ===== deskbot: camera + fusion maps (spliced into dashboard/static/index.html by deskbot/web/server.py) ===== -->
+
+    <!-- Camera -->
+    <section class="card card-vision" id="vision-card">
+      <header class="card-head">
+        <h2>Camera</h2>
+        <span class="card-meta mono" id="vision-meta">YOLO26n · ByteTrack</span>
+      </header>
+      <div class="cam-frame">
+        <img id="cam-img" alt="Live camera with detected objects outlined" hidden>
+        <div class="cam-off" id="cam-off">Waiting for the camera…</div>
+      </div>
+      <dl class="stats stats-3">
+        <div><dt>Detection</dt><dd class="mono" id="vis-fps">—</dd></div>
+        <div><dt>Inference</dt><dd class="mono" id="vis-infer">—</dd></div>
+        <div><dt>Frame → result</dt><dd class="mono" id="vis-latency">—</dd></div>
+      </dl>
+      <ul class="det-list" id="det-list" aria-live="polite"></ul>
+    </section>
+
+    <!-- Geometric map -->
+    <section class="card card-fmap" id="geo-card">
+      <header class="card-head">
+        <h2>Geometric map</h2>
+        <span class="card-meta">sonar + IR · fades when stale</span>
+      </header>
+      <canvas class="fmap" id="geo-canvas" width="320" height="320" aria-label="Geometric occupancy map. Start pose in the centre, 1 m grid lines."></canvas>
+      <ul class="fmap-legend">
+        <li><i class="sw" style="background: var(--map-free)"></i>Free</li>
+        <li><i class="sw" style="background: var(--map-unknown)"></i>Unknown / stale</li>
+        <li><i class="sw" style="background: var(--ink)"></i>Obstacle</li>
+        <li><i class="sw" style="background: var(--warn)"></i>Desk edge</li>
+      </ul>
+      <dl class="stats stats-3">
+        <div><dt>Observed</dt><dd class="mono" id="geo-area">—</dd></div>
+        <div><dt>Median age</dt><dd class="mono" id="geo-age">—</dd></div>
+        <div><dt>Half-life</dt><dd class="mono" id="geo-hl">—</dd></div>
+      </dl>
+    </section>
+
+    <!-- Semantic map -->
+    <section class="card card-fmap" id="sem-card">
+      <header class="card-head">
+        <h2>Semantic map</h2>
+        <button class="btn-ghost" id="sim-shuffle" hidden title="Move the mug while the robot isn't looking">Move the mug</button>
+      </header>
+      <canvas class="fmap" id="sem-canvas" width="320" height="320" aria-label="Semantic map: recognised objects with their labels. Start pose in the centre."></canvas>
+      <ul class="fmap-legend" id="sem-legend"><li class="muted">No objects yet</li></ul>
+      <ol class="obj-list" id="obj-list"></ol>
+    </section>
+
+    <!-- Confidence heatmap -->
+    <section class="card card-fmap" id="heat-card">
+      <header class="card-head">
+        <h2>Confidence heatmap</h2>
+        <button class="btn-ghost" id="fusion-reset">Clear maps</button>
+      </header>
+      <canvas class="fmap" id="heat-canvas" width="320" height="320" aria-label="Fused confidence that each spot holds an object. Blue: confidently empty. Grey: unknown or stale. Red: confidently an object."></canvas>
+      <div class="heat-legend">
+        <div class="heat-bar" id="heat-bar"></div>
+        <div class="heat-ticks"><span>Empty · sure</span><span>Unknown / stale</span><span>Object · sure</span></div>
+      </div>
+      <dl class="stats stats-3">
+        <div><dt>Confident area</dt><dd class="mono" id="heat-conf-area">—</dd></div>
+        <div><dt>Mean confidence</dt><dd class="mono" id="heat-mean">—</dd></div>
+        <div><dt>Map rate</dt><dd class="mono" id="heat-rate">—</dd></div>
+      </dl>
+    </section>
+
+    <div class="fmap-tip mono" id="fmap-tip" role="tooltip" hidden></div>
+    <!-- ===== end deskbot cards ===== -->
