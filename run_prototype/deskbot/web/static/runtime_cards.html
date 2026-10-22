@@ -1,0 +1,23 @@
+    <!-- ===== deskbot runtime: processes + behaviour (spliced in by deskbot/runtime/app.py) ===== -->
+    <section class="card card-runtime" id="runtime-card">
+      <header class="card-head">
+        <h2>Processes</h2>
+        <span class="card-meta">one core each · Linux scheduler</span>
+      </header>
+      <div class="proc-wrap">
+        <table class="proc-table mono" aria-label="Robot processes, their CPU core and priority">
+          <thead><tr><th>Process</th><th>Core</th><th>Priority</th><th>Loop</th><th>CPU</th></tr></thead>
+          <tbody id="proc-rows"><tr><td colspan="5" class="muted">Starting…</td></tr></tbody>
+        </table>
+      </div>
+      <dl class="stats stats-3">
+        <div><dt>Command → motor</dt><dd class="mono" id="rt-cmd">—</dd></div>
+        <div><dt>Sensor age at check</dt><dd class="mono" id="rt-age">—</dd></div>
+        <div><dt>Preempted</dt><dd class="mono" id="rt-pre">—</dd></div>
+      </dl>
+      <div class="behaviour-row">
+        <label class="switch"><input type="checkbox" id="face-user"><span>Face the user when idle</span></label>
+        <span class="muted" id="face-state">—</span>
+      </div>
+      <button class="btn-ghost" id="sim-move-user" hidden title="Seat the simulated user somewhere else around the desk">Move the user</button>
+    </section>
