@@ -1,0 +1,7 @@
+# Voice assistant + presence (deskbot assistant). System packages come from apt (scripts/setup.sh):
+#   espeak-ng (voice), alsa-utils (aplay/arecord), bluez (Bluetooth), openssl (HTTPS for browser mics)
+anthropic>=2.0       # Claude: the AI brain (offline rule-based brain without it / without a key)
+bleak>=0.22          # Bluetooth LE scanning (BlueZ over D-Bus on the Pi): wake/sleep + find my phone
+# Optional, offline speech-to-text on the Pi (no API key; ~1-2 s per short sentence with tiny.en):
+#   .venv/bin/pip install faster-whisper
+faster-whisper  # local speech to text (the default)

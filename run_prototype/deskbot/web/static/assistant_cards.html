@@ -1,0 +1,145 @@
+    <!-- ===== deskbot assistant (spliced in by deskbot/assistant/app.py) ===== -->
+    <section class="card card-assistant" id="assistant-card">
+      <header class="card-head">
+        <h2>Assistant</h2>
+        <span class="card-meta">
+          <span class="tag" id="as-brain">brain —</span>
+          <span class="tag" id="as-stt">speech —</span>
+          <span class="tag" id="as-voice">voice —</span>
+          <a class="btn-ghost" href="/remote" target="_blank" rel="noopener" title="Phone-sized remote control">Remote ↗</a>
+        </span>
+      </header>
+      <div class="as-top">
+        <div class="as-face" id="as-face" data-mood="neutral" aria-label="Robot mood">
+          <svg viewBox="0 0 64 48" aria-hidden="true">
+            <rect class="face-bg" x="2" y="2" width="60" height="44" rx="12"/>
+            <g class="eyes"><ellipse class="eye" cx="22" cy="20" rx="5" ry="6"/><ellipse class="eye" cx="42" cy="20" rx="5" ry="6"/></g>
+            <path class="mouth" d="M22 32 Q32 40 42 32"/>
+          </svg>
+          <span class="as-phase mono" id="as-phase">idle</span>
+        </div>
+        <div class="as-talk">
+          <button class="talk-btn" id="talk-btn" aria-label="Hold to talk">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            <span id="talk-label">Hold to talk</span>
+          </button>
+          <div class="level" aria-hidden="true"><i id="talk-level"></i></div>
+          <button class="btn-ghost" id="robot-mic-btn" title="Record 5 s with the robot's own microphone">Robot mic (5 s)</button>
+        </div>
+      </div>
+      <p class="as-note" id="as-insecure" hidden>
+        Browsers only allow the microphone on HTTPS. Open <a id="as-https-link" href="#">the HTTPS dashboard</a>
+        (accept the certificate warning once), or type below.
+      </p>
+      <ol class="chat" id="chat" aria-live="polite"></ol>
+      <form class="as-input" id="as-form" autocomplete="off">
+        <input type="text" id="as-text" maxlength="500" placeholder="Type to the robot… e.g. what's the weather, spin, find my phone">
+        <button type="submit" class="btn-primary" id="as-send">Send</button>
+        <button type="button" class="btn-danger" id="as-stop" title="Stop motors, commands and speech">Stop all</button>
+      </form>
+    </section>
+
+    <section class="card card-presence" id="presence-card">
+      <header class="card-head">
+        <h2>Presence</h2>
+        <span class="card-meta"><span class="tag" id="pr-awake">—</span></span>
+      </header>
+      <dl class="stats stats-3">
+        <div><dt>Phone</dt><dd class="mono" id="pr-phone">—</dd></div>
+        <div><dt>Signal</dt><dd class="mono" id="pr-rssi">—</dd></div>
+        <div><dt>Distance (rough)</dt><dd class="mono" id="pr-dist">—</dd></div>
+      </dl>
+      <canvas class="pr-spark" id="pr-spark" width="300" height="44" aria-label="Phone signal history"></canvas>
+      <div class="pr-row">
+        <button class="btn-primary" id="pr-find">Find my phone</button>
+        <button class="btn-ghost" id="pr-sleep">Sleep</button>
+        <button class="btn-ghost" id="pr-wake">Wake</button>
+      </div>
+      <div class="pr-find" id="pr-find-box" hidden>
+        <canvas id="pr-polar" width="140" height="140" aria-label="Signal strength by heading"></canvas>
+        <div class="pr-find-text mono" id="pr-find-text">—</div>
+      </div>
+      <div class="pr-row pr-lift">
+        <span>On the desk</span><span class="tag" id="pr-lift">—</span>
+        <span class="muted mono" id="pr-map">—</span>
+      </div>
+      <div class="pr-sim" id="pr-sim" hidden>
+        <label class="switch"><input type="checkbox" id="sim-lift"><span>Lift the robot (sim)</span></label>
+        <label class="switch"><input type="checkbox" id="sim-phone" checked><span>Phone nearby (sim)</span></label>
+      </div>
+      <details class="pr-devices">
+        <summary>Pick your phone / beacon <span class="muted" id="pr-match">—</span></summary>
+        <ul class="dev-list" id="pr-devices"><li class="muted">Scanning…</li></ul>
+        <p class="muted small">Phones change their Bluetooth address for privacy. Most reliable: a beacon app on the
+          phone (fixed iBeacon UUID) or a BLE tag/watch. See docs/presence.md.</p>
+      </details>
+    </section>
+
+    <section class="card card-persona" id="persona-card">
+      <header class="card-head">
+        <h2>Personality &amp; voice</h2>
+        <span class="card-meta" id="ps-keys">—</span>
+      </header>
+      <form id="ps-form" class="ps-form" autocomplete="off">
+        <label class="field-label" for="ps-preset">Preset</label>
+        <select id="ps-preset"><option value="">Custom</option></select>
+        <label class="field-label" for="ps-personality">Personality (sent to the AI with every message)</label>
+        <textarea id="ps-personality" rows="4" maxlength="2000"></textarea>
+        <div class="ps-grid">
+          <label>Name<input type="text" id="ps-name" maxlength="60"></label>
+          <label>Home city (weather)<input type="text" id="ps-location" maxlength="60" placeholder="e.g. Greater Noida"></label>
+        </div>
+        <div class="ps-switches">
+          <label class="switch"><input type="checkbox" id="ps-speak"><span>Speak replies</span></label>
+          <label class="switch"><input type="checkbox" id="ps-image"><span>Send camera image</span></label>
+          <label class="switch"><input type="checkbox" id="ps-exec"><span>Run commands</span></label>
+          <label class="switch"><input type="checkbox" id="ps-alerts"><span>Speak warnings</span></label>
+        </div>
+        <div class="ps-grid">
+          <label>Voice style<select id="ps-voice"></select></label>
+          <label>Voice<select id="ps-gender"></select></label>
+        </div>
+        <div class="ps-grid">
+          <label>Chipmunk amount <span class="mono" id="ps-factor-v">—</span><input type="range" id="ps-factor" min="1" max="2.5" step="0.1"></label>
+          <label>Volume <span class="mono" id="ps-volume-v">—</span><input type="range" id="ps-volume" min="0" max="1" step="0.05"></label>
+        </div>
+        <div class="pr-row">
+          <button type="submit" class="btn-primary">Save</button>
+          <button type="button" class="btn-ghost" id="ps-test">Test voice</button>
+          <span class="form-msg" id="ps-msg" role="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="card card-alerts" id="alerts-card">
+      <header class="card-head">
+        <h2>Warnings</h2>
+        <span class="card-meta mono" id="al-count">—</span>
+      </header>
+      <ul class="alert-list" id="al-active"><li class="muted">All good.</li></ul>
+      <details>
+        <summary class="muted">Recent</summary>
+        <ol class="alert-list alert-history" id="al-history"></ol>
+      </details>
+    </section>
+    <!-- ===== end deskbot assistant ===== -->
+
+    <!-- ===== navigation: live map, no-go zones, home ===== -->
+    <section class="card" id="nav-card">
+      <header class="card-head">
+        <h2>Navigation</h2>
+        <span class="card-meta"><span class="tag" id="nav-state">idle</span></span>
+      </header>
+      <canvas id="nav-canvas" width="420" height="420" style="width:100%;max-width:420px;touch-action:none;border-radius:8px"
+              aria-label="Map with the robot, objects, route, home and no-go zones. Drag to draw a zone, click a zone to remove it."></canvas>
+      <p id="nav-align" hidden>Saved places may not line up with this map. Stand the robot on home and press <b>Set home here</b>,
+        or <button class="btn-ghost" id="nav-accept" type="button">It started from the same spot</button></p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+        <button class="btn-ghost" id="nav-draw" type="button">Draw no-go zone</button>
+        <button class="btn-ghost" id="nav-clear" type="button">Clear zones</button>
+        <button class="btn-ghost" id="nav-home-set" type="button">Set home here</button>
+        <button class="btn-ghost" id="nav-home-go" type="button">Go home</button>
+      </div>
+      <p id="nav-note" role="status"></p>
+      <script src="/static/navigation.js" defer></script>
+    </section>
