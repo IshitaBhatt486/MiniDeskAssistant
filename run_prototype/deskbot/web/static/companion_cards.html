@@ -1,0 +1,75 @@
+    <!-- ===== deskbot companion (spliced in by deskbot/companion/app.py) ===== -->
+    <section class="card co-card" id="co-face-card">
+      <header class="card-head">
+        <h2>Eyes</h2>
+        <span class="card-meta" id="co-emotion">—</span>
+      </header>
+      <div class="co-oled"><img id="co-face" alt="The robot's eyes, as shown on its OLED screen" width="256" height="128"></div>
+      <div class="co-chips" id="co-emotions" aria-label="Show an emotion"></div>
+      <div class="co-row"><button class="btn-ghost co-primary" id="co-dance">Dance</button><span class="co-note" id="co-dance-name"></span></div>
+    </section>
+
+    <section class="card co-card" id="co-outputs-card">
+      <header class="card-head">
+        <h2>Saved outputs</h2>
+        <button class="btn-ghost co-primary" id="co-save">Save figures</button>
+      </header>
+      <p class="co-note mono" id="co-folder">—</p>
+      <p class="co-note" id="co-save-state" aria-live="polite"></p>
+      <ul class="co-files" id="co-files"></ul>
+    </section>
+
+    <section class="card co-card" id="co-cal-card">
+      <header class="card-head">
+        <h2>Calibration</h2>
+        <button class="btn-ghost co-primary" id="co-cal">Run full calibration</button>
+      </header>
+      <p class="co-note" id="co-cal-summary">—</p>
+      <ol class="co-steps" id="co-cal-steps"></ol>
+    </section>
+
+    <section class="card co-card" id="co-body-card">
+      <header class="card-head">
+        <h2>Body (MPU-6050)</h2>
+        <button class="btn-ghost" id="co-zero">Zero heading</button>
+      </header>
+      <canvas id="co-3d" width="520" height="260" aria-label="3D view of the robot's current orientation. Drag to look around it."></canvas>
+      <dl class="stats stats-3">
+        <div><dt>Tilt</dt><dd class="mono" id="co-tilt">—</dd></div>
+        <div><dt>Heading</dt><dd class="mono" id="co-yaw">—</dd></div>
+        <div><dt>Turn rate</dt><dd class="mono" id="co-gz">—</dd></div>
+      </dl>
+      <p class="co-note" id="co-lift">—</p>
+      <button class="btn-ghost" id="co-sim-lift" hidden>Pick up (simulation)</button>
+    </section>
+
+    <section class="card co-card" id="co-control-card">
+      <header class="card-head">
+        <h2>Self-correction</h2>
+        <span class="card-meta" id="co-mode">—</span>
+      </header>
+      <canvas id="co-plot" width="520" height="150" aria-label="Control loop: target and measured value over the last seconds"></canvas>
+      <ul class="fmap-legend">
+        <li><i class="sw" style="background: var(--cat-2)"></i>Target</li>
+        <li><i class="sw" style="background: var(--cat-1)"></i>Measured</li>
+        <li class="muted mono" id="co-readout"></li>
+      </ul>
+      <label class="switch"><input type="checkbox" id="co-trim"><span>Correct moves with the sensors</span></label>
+      <label class="switch"><input type="checkbox" id="co-distance"><span>Keep my distance from the user</span></label>
+    </section>
+
+    <section class="card co-card" id="co-gesture-card">
+      <header class="card-head">
+        <h2>Gestures</h2>
+        <span class="card-meta" id="co-gesture-state">—</span>
+      </header>
+      <label class="switch"><input type="checkbox" id="co-gesture-on"><span>Respond to hand gestures</span></label>
+      <div class="co-table-wrap">
+        <table class="co-table">
+          <thead><tr><th>Gesture</th><th>Action</th><th>Amount</th><th>Hold (s)</th><th>On</th><th class="co-simcol" hidden>Try</th></tr></thead>
+          <tbody id="co-gesture-rows"></tbody>
+        </table>
+      </div>
+      <button class="btn-ghost" id="co-gesture-save">Save gesture settings</button>
+    </section>
+    <!-- ===== end companion cards ===== -->
