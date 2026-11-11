@@ -1,0 +1,8 @@
+# Open-source benchmark tools for benchmarks.py
+pyperf          # MIT
+evo             # GPL-3.0, used only as a separate measuring tool
+pycocotools     # BSD-style
+jiwer           # Apache-2.0
+faster-whisper  # MIT (also the robot's local speech-to-text)
+# TrackEval is MIT and is not published on PyPI; this is the commit that was tested:
+https://github.com/JonathonLuiten/TrackEval/archive/12c8791b303e0a0b50f753af204249e622d0281a.zip
