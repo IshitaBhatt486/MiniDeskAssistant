@@ -29,7 +29,7 @@ import re
 import time
 from collections import deque
 
-from .commands import ACTIONS, MOODS, RESPONSE_SCHEMA, describe_actions, normalise
+from .commands import ACTIONS, MOODS, RESPONSE_SCHEMA, SOUNDS, describe_actions, describe_sounds, normalise
 from .tools import TOOL_SPECS, run_tool
 
 MAX_TOOL_ROUNDS = 4
@@ -54,17 +54,22 @@ from_object "cup", to_object "bottle"; "go to the book" is from_object "", to_ob
 route, so never replace it with move and turn commands. For every other action leave both fields empty.
 Directions are from the robot's point of view. The user is usually in front of the robot.
 "mood" sets the face on the dashboard.
-
+"sound" is a sound effect played just before your speech. Most replies use "none"; pick one only when it adds fun
+or meaning (a rimshot after a pun, a whoosh with a spin, ta-da when something is finished). The full list:
+{sounds}
+{extra}
 Personality (stay in character, but always be helpful and kind):
 {personality}"""
 
 
-def system_prompt(personality):
-    return SYSTEM_TEMPLATE.format(actions=describe_actions(), personality=personality.strip())
+def system_prompt(personality, extra=""):
+    """extra: more instructions from add-ons (buddy/: tasks, notifications), stable so the prompt stays cached."""
+    return SYSTEM_TEMPLATE.format(actions=describe_actions(), sounds=describe_sounds(),
+                                  extra=(extra.strip() + "\n") if extra.strip() else "", personality=personality.strip())
 
 
 class BrainResult(dict):
-    """{"speech", "mood", "commands", "backend", "ms", "tools", "error", "usage"}"""
+    """{"speech", "mood", "sound", "commands", "backend", "ms", "tools", "error", "usage"}"""
 
 
 # ---------------- Claude ----------------
@@ -76,6 +81,8 @@ class ClaudeBrain:
         self.settings = settings
         self._client = None
         self.load_error = None
+        self.extra_tools = {}          # name -> (spec, fn(args) -> (text, is_error)); see Brain.add_tool
+        self.extra_prompt = ""
         try:
             import anthropic  # noqa: F401  (ImportError / DLL blocked -> offline brain)
             self._anthropic = anthropic
@@ -111,10 +118,11 @@ class ClaudeBrain:
         for h in history:
             messages.append({"role": "user", "content": h["user"]})
             messages.append({"role": "assistant", "content": json.dumps(
-                {"speech": h["speech"], "mood": h.get("mood", "neutral"), "commands": h.get("commands", [])})})
+                {"speech": h["speech"], "mood": h.get("mood", "neutral"), "sound": h.get("sound", "none"),
+                 "commands": h.get("commands", [])})})
         messages.append({"role": "user", "content": content})
 
-        used_tools, usage = [], {"input": 0, "output": 0, "cache_read": 0}
+        used_tools, usage = [], {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "model": s.get("model", "claude-haiku-5-5")}
         for _ in range(MAX_TOOL_ROUNDS + 1):
             model = s.get("model", "claude-haiku-5-5")
             fallback = {} if "haiku" in model else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
@@ -123,8 +131,8 @@ class ClaudeBrain:
                 max_tokens=4000,
                 **fallback,
                 cache_control={"type": "ephemeral"},
-                system=system_prompt(s.get("personality", "")),
-                tools=TOOL_SPECS,
+                system=system_prompt(s.get("personality", ""), self.extra_prompt),
+                tools=TOOL_SPECS + [spec for spec, _ in self.extra_tools.values()],
                 output_config={"effort": s.get("effort", "low"),
                                "format": {"type": "json_schema", "schema": RESPONSE_SCHEMA}},
                 messages=messages,
@@ -133,9 +141,10 @@ class ClaudeBrain:
             usage["input"] += u.input_tokens or 0
             usage["output"] += u.output_tokens or 0
             usage["cache_read"] += getattr(u, "cache_read_input_tokens", 0) or 0
+            usage["cache_write"] += getattr(u, "cache_creation_input_tokens", 0) or 0
 
             if resp.stop_reason == "refusal":
-                return {"speech": "Sorry, I can't help with that one.", "mood": "confused", "commands": [],
+                return {"speech": "Sorry, I can't help with that one.", "mood": "confused", "sound": "none", "commands": [],
                         "tools": used_tools, "usage": usage}
             if resp.stop_reason == "tool_use":
                 messages.append({"role": "assistant", "content": resp.content})
@@ -143,7 +152,10 @@ class ClaudeBrain:
                 for block in resp.content:
                     if block.type != "tool_use":
                         continue
-                    text, is_err = run_tool(block.name, block.input or {}, tool_ctx or {})
+                    if block.name in self.extra_tools:
+                        text, is_err = self.extra_tools[block.name][1](block.input or {})
+                    else:
+                        text, is_err = run_tool(block.name, block.input or {}, tool_ctx or {})
                     used_tools.append({"name": block.name, "input": block.input, "error": is_err})
                     results.append({"type": "tool_result", "tool_use_id": block.id, "content": text,
                                     **({"is_error": True} if is_err else {})})
@@ -153,7 +165,7 @@ class ClaudeBrain:
                 raise RuntimeError("reply was cut off (max_tokens)")
             text = next((b.text for b in resp.content if b.type == "text"), "")
             data = json.loads(text)
-            return {"speech": data.get("speech", ""), "mood": data.get("mood", "neutral"),
+            return {"speech": data.get("speech", ""), "mood": data.get("mood", "neutral"), "sound": data.get("sound", "none"),
                     "commands": data.get("commands", []), "tools": used_tools, "usage": usage}
         raise RuntimeError("too many tool rounds")
 
@@ -216,7 +228,7 @@ def local_vision_answer(text, items):
         answer = "I can see " + (", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]) + "."
     elif re.fullmatch(r"what(?: is|'s) (?:this|that)", t):
         answer = f"That looks like a {named(biggest)}."
-    return None if answer is None else {"speech": answer, "mood": "curious", "commands": [], "tools": []}
+    return None if answer is None else {"speech": answer, "mood": "curious", "sound": "none", "commands": [], "tools": []}
 
 
 SIMPLE_NAMES = {"mug": "cup", "phone": "cell phone", "mobile": "cell phone", "notebook": "book", "water bottle": "bottle"}
@@ -274,17 +286,17 @@ class OfflineBrain:
         t = " " + user_text.lower().strip() + " "
         name = (tool_ctx or {}).get("robot_name", "Pip")
         cmd = lambda a, amt=0: {"action": a, "amount": amt}   # noqa: E731
-        reply = lambda speech, mood="happy", commands=(): {"speech": speech, "mood": mood,  # noqa: E731
-                                                          "commands": list(commands), "tools": []}
+        reply = lambda speech, mood="happy", commands=(), sound="none": {  # noqa: E731
+            "speech": speech, "mood": mood, "sound": sound, "commands": list(commands), "tools": []}
 
         if re.search(r"\b(stop|halt|freeze|wait)\b", t):
             return reply("Stopping.", "neutral", [cmd("stop")])
         if re.search(r"find (my )?phone|where('s| is) my phone", t):
             return reply("Looking for your phone.", "curious", [cmd("find_phone")])
         if re.search(r"\b(go to sleep|good ?night|sleep)\b", t):
-            return reply("Good night.", "sleepy", [cmd("sleep")])
+            return reply("Good night.", "sleepy", [cmd("sleep")], "yawn")
         if re.search(r"\b(wake up|good morning)\b", t):
-            return reply("I'm awake!", "excited", [cmd("wake")])
+            return reply("I'm awake!", "excited", [cmd("wake")], "ding")
         if re.search(r"\b(reset|forget|new) (the )?map\b", t):
             return reply("Starting a fresh map.", "neutral", [cmd("reset_map")])
         if re.search(r"\b(this is|here is|mark|set|save)\b.{0,16}\bhome\b", t):
@@ -295,7 +307,7 @@ class OfflineBrain:
             say = f"Going from {start} to {goal}." if start else f"Going to {goal}."
             return reply(say, "curious", [{"action": "navigate", "amount": 0, "from_object": start, "to_object": goal}])
         if "spin" in t:
-            return reply("Wheee!", "excited", [cmd("spin", _number(t, 1))])
+            return reply("Wheee!", "excited", [cmd("spin", _number(t, 1))], "whoosh")
         if "dance" in t:
             return reply("Dance time!", "excited", [cmd("dance")])
         if "look around" in t:
@@ -333,7 +345,7 @@ class OfflineBrain:
             if err:
                 return reply("I tried to think of a joke, but my internet is down. That's the joke.", "sad")
             j = json.loads(text)
-            return reply(f"{j['setup']} {j['punchline']}", "excited")
+            return reply(f"{j['setup']} {j['punchline']}", "excited", sound="giggle")
         if re.search(r"what (do|can) you see|what's in front", t):
             seen = (tool_ctx or {}).get("seen_labels") or []
             return reply(f"I can see {', '.join(seen)}." if seen else "I don't see anything I recognise.", "curious")
@@ -344,7 +356,7 @@ class OfflineBrain:
                 summary = json.loads(text)["summary"]
                 return reply(" ".join(re.split(r"(?<=[.!?]) ", summary)[:2]), "curious")
         if re.search(r"\b(hi|hello|hey)\b", t):
-            return reply(f"Hello! I'm {name}.", "happy")
+            return reply(f"Hello! I'm {name}.", "happy", sound="beep_boop")
         return reply("I'm in simple mode without my AI brain, so I only understand short commands like "
                      "turn left, come here, stop, spin, or what's the weather.", "confused")
 
@@ -359,43 +371,134 @@ class Brain:
         self.offline = OfflineBrain()
         self.history = deque(maxlen=HISTORY_TURNS)
         self.last = None
+        self.local_handlers = []     # fn(text, tool_ctx) -> reply dict or None: tried before the offline rules
+        self.pre_handlers = []       # fn(text, tool_ctx) -> reply or None, tried FIRST (full/: routines, smart home, games)
+        self.fallback_brains = []    # objects with .name, .available(), .think(...): tried after the local skills
+        self.primary_brains = []     # (20 Nov 2026, pro/: Groq) same interface, tried BEFORE Claude; Claude becomes
+                                     # their fallback. A brain without .sees = True is skipped for a turn that carries
+                                     # a camera image while Claude is available (Claude can look at it)
+        self.not_local = []          # compiled regexes: sentences that must NOT be taken as a plain robot command
+                                     # ("stop the music" is not "stop"; hub/core.py adds music / focus words)
         if not self.claude.available():
             alerts.warn("ai", "No AI brain connected, so I'm in simple mode. Add an Anthropic API key to fix that.",
                         detail=self.claude.why_unavailable())
 
+    def _try(self, handler, user_text, tool_ctx):
+        try:
+            out = handler(user_text, tool_ctx or {})
+        except Exception as exc:
+            self.alerts.warn("ai", "A local skill failed.", speak=False, detail=f"{type(exc).__name__}: {exc}"[:300])
+            return None
+        if out is not None:
+            out.setdefault("tools", [])
+        return out
+
+    def add_tool(self, spec, fn):
+        """An extra Claude tool from an add-on (buddy/tasks.py). fn(args) -> (result text, is_error)."""
+        self.claude.extra_tools[spec["name"]] = (dict(spec, strict=True), fn)
+
+    def add_prompt(self, text):
+        self.claude.extra_prompt = (self.claude.extra_prompt + "\n" + text.strip()).strip()
+
     def backend(self):
+        for pb in self.primary_brains:
+            if pb.available():
+                return pb.name
         return "claude" if self.claude.available() else "offline"
 
+    def order(self):
+        """Names of the cloud/local brains in the order they're tried right now (dashboard: APIs in use)."""
+        names = [pb.name for pb in self.primary_brains if pb.available()]
+        names += ["claude"] if self.claude.available() else []
+        # OllamaBrain.available() probes the network (too slow for a status poll): use its switch and the result of
+        # the last probe instead (None = never probed yet)
+        for fb in self.fallback_brains:
+            if hasattr(fb, "enabled"):
+                cached = getattr(getattr(fb, "ollama", None), "_models", None)
+                ok = fb.enabled() and (cached is None or bool(cached))
+            else:
+                ok = fb.available()
+            if ok:
+                names.append(fb.name)
+        return names + ["offline"]
+
     def status(self):
-        return {"backend": self.backend(), "model": self.settings.get("model") if self.backend() == "claude" else None,
-                "effort": self.settings.get("effort"), "why_offline": None if self.claude.available() else self.claude.why_unavailable(),
+        backend = self.backend()
+        primary = next((pb for pb in self.primary_brains if pb.name == backend), None)
+        model = primary.model() if primary is not None and callable(getattr(primary, "model", None)) else \
+            self.settings.get("model") if backend == "claude" else None
+        return {"backend": backend, "model": model, "order": self.order(),
+                "effort": self.settings.get("effort"),
+                "why_offline": None if backend != "offline" else self.claude.why_unavailable(),
                 "last": self.last}
 
     def think(self, user_text, context, image_jpeg=None, tool_ctx=None):
         t0 = time.perf_counter()
         out, error = None, None
-        if self.settings.get("local_commands", True):
+        for handler in self.pre_handlers:          # routines, smart-home devices, games: before anything else
+            out = self._try(handler, user_text, tool_ctx)
+            if out is not None:
+                out.setdefault("backend", "local")
+                break
+        if out is None and self.settings.get("local_commands", True) and not any(rx.search(user_text.lower()) for rx in self.not_local):
             out = local_vision_answer(user_text, (tool_ctx or {}).get("seen_items")) or local_command(user_text)
             if out is not None:
                 out["backend"] = "local"
+        if out is None:
+            for pb in self.primary_brains:
+                if not pb.available() or (image_jpeg is not None and not getattr(pb, "sees", False) and self.claude.available()):
+                    continue
+                try:
+                    out = pb.think(user_text, context, list(self.history), image_jpeg if getattr(pb, "sees", False) else None, tool_ctx)
+                    out["backend"] = pb.name
+                    self.alerts.resolve(f"ai-{pb.name}", f"{pb.name.title()} is answering again.", speak=False)
+                    break
+                except Exception as exc:
+                    reason = pb.classify_error(exc) if hasattr(pb, "classify_error") else "it failed"
+                    nxt = "Claude" if self.claude.available() else "simple mode"
+                    self.alerts.warn(f"ai-{pb.name}", f"{pb.name.title()} isn't answering ({reason}), using {nxt}.", speak=False,
+                                     detail=f"{type(exc).__name__}: {exc}"[:300])
+                    error = reason
+                    out = None
         if out is None and self.claude.available():
             try:
                 out = self.claude.think(user_text, context, list(self.history), image_jpeg, tool_ctx)
                 out["backend"] = "claude"
+                error = None                      # a primary brain may have failed first; Claude covered for it
                 self.alerts.resolve("ai", "My AI brain is back.")
             except Exception as exc:
                 error = self.claude.classify_error(exc)
                 self.alerts.warn("ai", f"Switching to simple mode: {error}.", detail=f"{type(exc).__name__}: {exc}"[:300])
         if out is None:
+            for handler in self.local_handlers:
+                out = self._try(handler, user_text, tool_ctx)
+                if out is not None:
+                    break
+        if out is None:
+            for fb in self.fallback_brains:        # e.g. a local LLM (full/local_llm.py) before the keyword rules
+                if not fb.available():
+                    continue
+                try:
+                    out = fb.think(user_text, context, list(self.history), image_jpeg, tool_ctx)
+                    out["backend"] = fb.name
+                    break
+                except Exception as exc:
+                    self.alerts.warn("ai", f"The {fb.name} brain failed.", speak=False, detail=f"{type(exc).__name__}: {exc}"[:300])
+                    out = None
+        if out is None:
             out = self.offline.think(user_text, context, list(self.history), None, tool_ctx)
+        if "backend" not in out:
             out["backend"] = "offline"
         if out.get("mood") not in MOODS:
             out["mood"] = "neutral"
+        if out.get("sound") not in SOUNDS:
+            out["sound"] = "none"
         out["commands"], problems = normalise(out.get("commands", []))
         out["problems"] = problems
         out["error"] = error
         out["ms"] = round((time.perf_counter() - t0) * 1000)
-        self.history.append({"user": user_text, "speech": out["speech"], "mood": out["mood"], "commands": out["commands"]})
+        self.history.append({"user": user_text, "speech": out["speech"], "mood": out["mood"], "sound": out["sound"],
+                             "commands": out["commands"]})
         self.last = {k: out.get(k) for k in ("backend", "ms", "error", "usage")}
         return out
 

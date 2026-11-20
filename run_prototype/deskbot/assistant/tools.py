@@ -41,7 +41,12 @@ class ToolError(Exception):
     pass
 
 
+ALLOW_INTERNET = [lambda: True]   # full/features.py swaps this for the local-only switch (19 Nov 2026)
+
+
 def http_json(url, params=None, timeout=TIMEOUT):
+    if not ALLOW_INTERNET[0]():
+        raise ToolError("internet use is switched off (local-only mode)")
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})

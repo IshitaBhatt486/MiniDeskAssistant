@@ -1,0 +1,30 @@
+# Pro runtime:  python tools/sim_console.py --mode pro --script tools/sim_scenarios/pro.txt
+# Each line is one console command. "expect a|b" checks the last reply; "expect move x|y" checks what the robot did.
+
+# headpats on the touch pads
+:touch top
+expect pat
+:touch left 1.6
+expect hold
+:touch left top right
+expect stroke
+expect pats
+# the MPU-6050 events
+:imu knock
+:imu shake
+:imu tipped
+# (the live simulated IMU stands it back up by itself a second later: "righted")
+:imu bump
+expect move stop
+# personality profiles by voice, then back
+switch to the pirate profile
+expect pirate
+which profile are you using?
+expect pirate
+switch to the cheerful helper profile
+expect cheerful
+# the brain still answers plain commands
+turn left 45
+expect move turn_left
+:get /api/pro/apis
+:state

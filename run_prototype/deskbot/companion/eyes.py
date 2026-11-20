@@ -186,6 +186,18 @@ def _draw_fx(d, fx, w, now):
             r = 2 + phase % 2
             d.line((x - r, y, x + r, y), fill="white")
             d.line((x, y - r, x, y + r), fill="white")
+    elif fx == "confetti":
+        # 14 pieces falling and drifting; position from the piece's index and the clock, so no state is kept
+        for i in range(14):
+            x = (i * 37 + 9 + int(4 * math.sin(now * 3 + i))) % w
+            y = int((now * 26 + i * 23) % 70) - 4
+            if i % 3 == 0:
+                d.rectangle((x, y, x + 2, y + 1), fill="white")
+            elif i % 3 == 1:
+                d.point((x, y), fill="white")
+                d.point((x + 1, y + 1), fill="white")
+            else:
+                d.line((x, y, x + 1, y + 2), fill="white")
     elif fx == "dizzy":
         x = w // 2 + (-5, 0, 5, 0)[phase % 4]
         y = 7 + (0, -3, 0, 3)[phase % 4]

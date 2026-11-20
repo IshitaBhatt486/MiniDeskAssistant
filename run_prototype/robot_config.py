@@ -63,6 +63,18 @@ ENCODERS = {
     "right_b": 16,  # physical pin 36
 }
 
+# ---------------- TOUCH PADS (3x TTP223, 20 Nov 2026) ----------------
+# VCC -> 3.3 V (pin 1 or 17; NOT 5 V: the I/O output would then be 5 V), GND -> GND, I/O -> the pin below.
+# Default TTP223 jumpers (A and B open): momentary, output HIGH while touched. Read by deskbot/pro/touch.py.
+# GPIO 14 is UART TX: the serial console must be off (scripts/setup.sh does it: raspi-config nonint do_serial_cons 1).
+# Pin-saving alternatives (diode-OR on one pin, PCF8574 on the I2C bus): docs/pro.md.
+
+TOUCH = {
+    "top": 7,       # physical pin 26 (SPI CE1, SPI is off)
+    "left": 8,      # physical pin 24 (SPI CE0)
+    "right": 14,    # physical pin 8  (UART TX)
+}
+
 # ---------------- REFERENCE ----------------
 
 # BCM GPIO -> physical header pin (Raspberry Pi 40-pin header)
@@ -81,6 +93,7 @@ def all_pins(include_reserved=True):
         pins += [(f"{name} sonar trigger", cfg["trigger"]), (f"{name} sonar echo", cfg["echo"])]
     pins += [("front IR", IR_FRONT), ("rear IR", IR_BACK)]
     pins += [(f"I2C {k.upper()} (IMU + OLED)", v) for k, v in I2C.items()]
+    pins += [(f"touch pad {k}", v) for k, v in TOUCH.items()]
     if include_reserved:
         pins += [(f"encoder {k} (reserved)", v) for k, v in ENCODERS.items()]
     return pins

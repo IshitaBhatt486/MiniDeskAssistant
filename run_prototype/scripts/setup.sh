@@ -39,9 +39,16 @@ if grep -qi "raspberry pi" /proc/device-tree/model 2>/dev/null; then
   BOOT_CONFIG=/boot/firmware/config.txt; [ -f "$BOOT_CONFIG" ] || BOOT_CONFIG=/boot/config.txt
   grep -q '^dtparam=i2c_arm_baudrate=' "$BOOT_CONFIG" || echo 'dtparam=i2c_arm_baudrate=400000' | sudo tee -a "$BOOT_CONFIG" >/dev/null
   sudo usermod -aG i2c "$(id -un)" || true
+  # 20 Nov 2026: the right touch pad is on GPIO 14 (UART TX), so the serial console and UART are switched off
+  step "Serial console off (GPIO 14 is the right touch pad)"
+  sudo raspi-config nonint do_serial_cons 1 || echo "Could not turn the serial console off: sudo raspi-config > Interface > Serial"
+  sudo raspi-config nonint do_serial_hw 1 || true
+  sudo usermod -aG gpio "$(id -un)" || true
   if [ "$ASSISTANT" = 1 ]; then
     step "Assistant system packages: espeak-ng (voice), alsa-utils (speaker/mic), bluez (Bluetooth), openssl (HTTPS)"
     sudo apt-get install -y espeak-ng alsa-utils bluez openssl
+    step "Full robot extras: tesseract-ocr (reading pages without AI)"
+    sudo apt-get install -y tesseract-ocr || true
     sudo usermod -aG bluetooth,audio "$(id -un)" || true   # BLE scanning + sound without root (takes effect at next login)
   fi
 fi

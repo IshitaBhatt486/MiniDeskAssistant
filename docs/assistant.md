@@ -46,9 +46,18 @@ The reply is forced into this schema with **structured outputs** (`output_config
 always parses:
 
 ```json
-{"speech": "Wheee! One spin coming up.", "mood": "excited",
- "commands": [{"action": "spin", "amount": 1}, {"action": "move_forward", "amount": 0.5}]}
+{"speech": "Wheee! One spin coming up.", "mood": "excited", "sound": "whoosh",
+ "commands": [{"action": "spin", "amount": 1, "from_object": "", "to_object": ""}]}
 ```
+
+**`sound` (19 Nov 2026)** is a sound effect played just before the speech, or `"none"` (most replies). It must be one
+of `commands.SOUNDS`: `tada, ding, pop, boing, whoosh, giggle, rimshot, drumroll, sad_trombone, beep_boop, fanfare,
+notification, reminder, gasp, yawn`. The list with a one-line meaning for each is in the system prompt, so the model
+knows when each fits. `Brain.think` turns anything else into `"none"`; `core.py` queues `speaker.chime(sound)` and then
+the speech on the same speaker queue, so they always play in that order. The sounds are synthesised in `motifs.py`
+(plucked notes, pitch glides, noise bursts; numpy only, no files), cached after the first use (all 15 take about 0.6 s
+the first time on the laptop). The offline brain also picks a few (spin → whoosh, hello → beep_boop, joke → giggle,
+good night → yawn, wake up → ding). The `sounds` setting switches them off together with the state motifs.
 
 | action | amount (clamped) | does |
 | --- | --- | --- |
@@ -63,6 +72,8 @@ always parses:
 | `sleep` / `wake` | – | [presence.md](presence.md) §2 |
 | `reset_map` | – | new map, pose back to (0, 0) |
 | `set_speed` | 10–100 % | drive speed |
+| `celebrate` | – | one of 4 victory routines at random (spin, wiggle, hop, twist), each ends where it started (19 Nov 2026) |
+| `nudge` | – | a small attention wiggle: 12° left, 24° right, 12° left (reminders) |
 
 - `normalise()` drops unknown actions, clamps amounts, turns 0/NaN into the default, and keeps at most **5**
   commands. Problems are shown as red chips under the reply.
@@ -114,6 +125,7 @@ Wikipedia opensearch + REST summary, Official Joke API, open.er-api.com exchange
 | `groq` | `GROQ_API_KEY` (free tier) | ~0.3–0.6 s, Whisper large-v3-turbo |
 | `openai` | `OPENAI_API_KEY` | ~1 s, whisper-1 |
 | `local` | `pip install faster-whisper` | tiny.en int8 on the Pi 4: ~1–2 s; base.en ~3–5 s (first use downloads the model) |
+| `windows` | Windows 10/11 (laptop simulation only, 20 Nov 2026) | ~2–3 s, offline `System.Speech` dictation via PowerShell; tried last, also allowed in strict `local`. See [sim-console.md](sim-console.md) |
 
 `auto` tries them in that order and falls back to the next one on an error. A clip under 0.3 s, over 30 s, or
 **quieter than −50 dBFS** peak is rejected *before* any API call ("I didn't hear anything. Is the microphone muted?").

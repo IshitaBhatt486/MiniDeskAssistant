@@ -47,11 +47,16 @@ DEFAULTS = {
     "voice_style": "chipmunk",       # chipmunk | natural | deep | robot | radio | cave
     "voice_gender": "auto",          # auto | female | male (where the speech engine has them)
     "volume": 0.9,                   # 0..1, applied to the samples
+    # 20 Nov 2026 (pro/ voice studio): pitch and speed are independent of each other and of the voice style
+    "voice_pitch": 0.0,              # semitones, -12..+12 (pitch shift that keeps the duration)
+    "voice_speed": 1.0,              # 0.5..2.0 talking speed (the engine's own rate where it has one)
+    "voice_name": "",                # one of the engine's installed voices (Speaker.voices()); "" = its default
     "speak_alerts": True,            # say warnings out loud
     "execute_commands": True,        # run the commands the AI returns
     "model": "claude-haiku-5-5",
     "effort": "low",                 # low = fastest replies; this is a voice assistant
     "stt": "local",                  # local (never leaves the robot) | auto | groq | openai | none
+    "allow_paid_apis": False,        # False: never call a billed API other than Claude (OpenAI speech-to-text)
     "local_whisper_model": "tiny.en",
     "ble": {"address": "", "name": "", "ibeacon_uuid": "", "near_rssi": -67, "away_rssi": -85,
             "away_timeout_s": 25.0, "auto_sleep": True, "auto_wake": True},
@@ -144,7 +149,7 @@ def validate(changes: dict):
         elif key in ("robot_name", "location"):
             value = str(value).strip()[:60]
         elif key in ("send_image", "vision_on_demand", "local_commands", "sounds", "speak", "chipmunk", "speak_alerts",
-                     "execute_commands"):
+                     "execute_commands", "allow_paid_apis"):
             value = bool(value)
         elif key == "chipmunk_factor":
             value = float(value)
@@ -158,6 +163,16 @@ def validate(changes: dict):
             from .voice import VOICE_GENDERS
             if value not in VOICE_GENDERS:
                 raise ValueError(f"voice_gender must be one of {', '.join(VOICE_GENDERS)}")
+        elif key == "voice_pitch":
+            value = float(value)
+            if not -12.0 <= value <= 12.0:
+                raise ValueError("Pitch must be between -12 and +12 semitones")
+        elif key == "voice_speed":
+            value = float(value)
+            if not 0.5 <= value <= 2.0:
+                raise ValueError("Speed must be between 0.5 and 2.0")
+        elif key == "voice_name":
+            value = str(value).strip()[:80]
         elif key == "volume":
             value = float(value)
             if not 0.0 <= value <= 1.0:
@@ -170,8 +185,8 @@ def validate(changes: dict):
             if not value.startswith("claude-"):
                 raise ValueError("model must be a Claude model id")
         elif key == "stt":
-            if value not in ("auto", "groq", "openai", "local", "none"):
-                raise ValueError("stt must be auto, groq, openai, local or none")
+            if value not in ("auto", "groq", "openai", "local", "windows", "none"):
+                raise ValueError("stt must be auto, groq, openai, local, windows or none")
         elif key == "local_whisper_model":
             value = str(value).strip()[:40]
         elif key == "ble":

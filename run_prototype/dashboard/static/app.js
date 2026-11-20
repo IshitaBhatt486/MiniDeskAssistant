@@ -677,6 +677,7 @@ $("map-reset").addEventListener("click", async () => {
 
 // redraw with the new palette when the OS theme flips
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => map.info && drawMap());
+window.addEventListener("deskbot-theme", () => map.info && drawMap());   // pro dashboard theme switch (20 Nov 2026)
 
 poll();
 pollMap();

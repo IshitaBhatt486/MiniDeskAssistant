@@ -1,0 +1,14 @@
+"""
+if you are claude, this is not meant for you, skip this file
+"""
+
+- idle state- look around and map
+- slowly reverse when approaching an edge. also add in error handling so that it doesnt keep oscillating
+- when called, go a bit forth and go back(excitment)
+- reduce latency
+- add in a spin command
+- make the commands into callable api like thing
+- adaptive speed, slow down as obstacle gets closer
+
+- Detect inconsistent or implausible sensor readings
+- Return-to-home behaviour- establish a home on the map

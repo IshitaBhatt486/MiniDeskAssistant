@@ -1,0 +1,49 @@
+/* Buddy cards: tasks (with a confetti burst when one is done) and phone notifications. */
+.bd-card { position: relative; overflow: hidden; }
+.bd-list { list-style: none; margin: 0; padding: 0; font-size: 14px; max-height: 260px; overflow: auto; }
+.bd-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid var(--border); }
+.bd-list li:last-child { border-bottom: 0; }
+.bd-list input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--ok); }
+.bd-title { overflow-wrap: anywhere; }
+.bd-due { display: block; font-size: 12px; color: var(--ink-3); }
+.bd-due.late { color: var(--warn); font-weight: 600; }
+.bd-done .bd-title { text-decoration: line-through; color: var(--ink-3); }
+.bd-x { border: 0; background: none; color: var(--ink-3); font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.bd-x:hover { color: var(--warn); background: var(--warn-soft); }
+.bd-list li.just-done { animation: bd-pop 0.6s ease-out; }
+.bd-empty { color: var(--ink-3); font-size: 13px; padding: 6px 0; }
+.bd-done-wrap summary, .bd-settings summary { cursor: pointer; font-size: 13px; color: var(--ink-2); padding: 4px 0; }
+.bd-form { display: grid; gap: 8px; margin-top: 6px; font-size: 13px; }
+.bd-form label { display: grid; gap: 3px; }
+.bd-form label.bd-check { display: flex; align-items: center; gap: 8px; }
+.bd-form input[type="number"], .bd-form input[type="time"], .bd-form input[type="text"] {
+  font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--border-strong); border-radius: 6px; padding: 5px 7px; min-width: 0; }
+.bd-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bd-notes li { grid-template-columns: auto minmax(0, 1fr); }
+.bd-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 6px; white-space: nowrap;
+  background: var(--card-2); color: var(--ink-3); border: 1px solid var(--border); }
+.bd-badge.spoken { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.bd-badge.waiting { color: var(--move); background: var(--move-soft); border-color: transparent; }
+.bd-badge.blocked { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.bd-why { display: block; font-size: 11px; color: var(--ink-3); overflow-wrap: anywhere; }
+.bd-pre { background: var(--card-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px;
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
+.bd-setup { display: grid; gap: 6px; margin-top: 6px; }
+
+/* confetti: absolutely positioned pieces, removed after the animation */
+.bd-confetti { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.bd-confetti i { position: absolute; top: -12px; width: 8px; height: 12px; border-radius: 2px; opacity: 0.95;
+  animation: bd-fall var(--d, 1.6s) cubic-bezier(.25,.6,.4,1) forwards; }
+@keyframes bd-fall {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  100% { transform: translate3d(var(--dx, 0px), 380px, 0) rotate(var(--r, 540deg)); opacity: 0; }
+}
+@keyframes bd-pop { 0% { background: var(--ok-soft); transform: scale(1.02); } 100% { background: transparent; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .bd-confetti i { animation-duration: 0.01s; }
+  .bd-list li.just-done { animation: none; }
+}
+@media (max-width: 480px) {
+  .bd-row2 { grid-template-columns: 1fr; }
+}

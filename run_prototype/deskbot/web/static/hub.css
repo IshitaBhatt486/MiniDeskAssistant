@@ -1,0 +1,24 @@
+/* Hub cards: focus mode, ideas, music, connected accounts, API costs. */
+.hb-wrap { flex-wrap: wrap; }
+.hb-focus-big { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.hb-clock { font-size: 36px; font-weight: 600; letter-spacing: -0.5px; }
+.hb-meter { height: 8px; background: var(--card-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.hb-meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width 0.4s; }
+.hb-card[data-obs="away"] .hb-meter i, .hb-card[data-obs="down"] .hb-meter i, .hb-card[data-obs="phone"] .hb-meter i { background: var(--warn); }
+.hb-search { font: inherit; font-size: 13px; color: var(--ink); background: var(--card); border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: 5px 8px; width: 100%; box-sizing: border-box; }
+.hb-accounts, .hb-keys, .hb-services { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.hb-accounts li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid var(--border); }
+.hb-accounts b { font-size: 14px; }
+.hb-accounts .hb-sub { display: block; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.hb-accounts .hb-err { color: var(--warn); }
+.hb-keys li, .hb-services li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+.hb-services li { flex-direction: column; gap: 0; border-bottom: 1px solid var(--border); padding: 5px 0; }
+.hb-services span { font-size: 12px; color: var(--ink-3); }
+.hb-ok { color: var(--ok); font-weight: 600; }
+.hb-bad { color: var(--warn); font-weight: 600; }
+.hb-vol { display: flex; align-items: center; gap: 6px; }
+.hb-vol input { width: 110px; }
+.hb-inline { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+@media (max-width: 480px) { .hb-inline { grid-template-columns: 1fr; } .hb-clock { font-size: 30px; } }

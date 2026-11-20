@@ -40,6 +40,8 @@ class Assistant:
         self._busy = threading.Lock()
         self.phase = "idle"        # idle | listening | transcribing | thinking
         self._seen_items = []      # newest detections with their colours
+        self.context_hooks = []    # fn() -> list of extra context lines (buddy/: tasks, phone notifications)
+        self.turn_listeners = []   # fn(entry) after every conversation turn
 
     # -- entry points --
 
@@ -61,14 +63,15 @@ class Assistant:
             self.phase = "idle"
             self._busy.release()
 
-    def handle_text(self, text: str, source="typed"):
+    def handle_text(self, text: str, source="typed", speak=True):
+        """speak=False (19 Nov 2026, full/telegram.py): answer without saying it on the robot's speaker."""
         text = (text or "").strip()[:500]
         if not text:
             raise ValueError("Say something first")
         if not self._busy.acquire(blocking=False):
             raise Busy()
         try:
-            return self._turn(text, source)
+            return self._turn(text, source, speak=speak)
         finally:
             self.phase = "idle"
             self._busy.release()
@@ -91,7 +94,7 @@ class Assistant:
 
     # -- one turn --
 
-    def _turn(self, text, source, stt_ms=None):
+    def _turn(self, text, source, stt_ms=None, speak=True):
         presence = self.sv.presence
         if presence is not None and not presence.awake:
             presence.set_awake(True, reason="spoken to", announce=False)
@@ -108,7 +111,10 @@ class Assistant:
             "default_location": self.settings.get("location", ""),
             "robot_status": self.robot_status, "robot_name": self.settings.get("robot_name", "Pip"),
             "seen_labels": seen, "seen_items": self._seen_items})
-        if self.settings.get("speak", True):
+        sound = out.get("sound") or "none"
+        if sound != "none" and speak:
+            self.speaker.chime(sound)          # the AI's sound effect, just before the speech (same queue: in order)
+        if speak and self.settings.get("speak", True):
             self.speaker.say(out["speech"], "reply")
         executed = []
         if out["commands"] and self.settings.get("execute_commands", True):
@@ -123,10 +129,16 @@ class Assistant:
     def _record(self, text, source, out, **extra):
         self._id += 1
         entry = {"id": self._id, "t": time.time(), "user": text, "source": source,
-                 "speech": out.get("speech"), "mood": out.get("mood"), "commands": out.get("commands", []),
+                 "speech": out.get("speech"), "mood": out.get("mood"), "sound": out.get("sound", "none"),
+                 "commands": out.get("commands", []),
                  "backend": out.get("backend"), "ms": out.get("ms"), "tools": out.get("tools", []),
                  "error": out.get("error"), "problems": out.get("problems", []), "usage": out.get("usage"), **extra}
         self.log.append(entry)
+        for fn in self.turn_listeners:
+            try:
+                fn(entry)
+            except Exception as exc:
+                self.alerts.warn("assistant", "A turn listener failed.", speak=False, detail=f"{type(exc).__name__}: {exc}")
         return entry
 
     # -- what the AI gets told --
@@ -186,6 +198,11 @@ class Assistant:
             if extra:
                 lines.append("Unidentified obstacles you can navigate to: "
                              + "; ".join(f"{o['name']} ({o['distance_m'] * 100:.0f} cm away)" for o in extra) + ".")
+        for hook in self.context_hooks:
+            try:
+                lines.extend(hook())
+            except Exception as exc:
+                self.alerts.warn("assistant", "Couldn't add some context for the AI.", speak=False, detail=str(exc))
         return "\n".join(lines), sorted(set(seen))
 
     def _map_memory(self):

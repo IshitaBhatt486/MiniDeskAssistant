@@ -1,0 +1,98 @@
+    <!-- ===== deskbot hub (spliced in by deskbot/hub/app.py) ===== -->
+    <section class="card co-card hb-card" id="hb-focus-card">
+      <header class="card-head">
+        <h2>Focus mode</h2>
+        <span class="card-meta"><span class="tag" id="hb-focus-state">—</span></span>
+      </header>
+      <div class="hb-focus-big">
+        <span class="hb-clock mono" id="hb-focus-clock">—</span>
+        <span class="co-note" id="hb-focus-obs">Say “start focus mode” or press a button.</span>
+      </div>
+      <div class="hb-meter" aria-hidden="true"><i id="hb-focus-bar"></i></div>
+      <dl class="stats stats-3">
+        <div><dt>Focused</dt><dd class="mono" id="hb-focus-pct">—</dd></div>
+        <div><dt>Distractions</dt><dd class="mono" id="hb-focus-dist">—</dd></div>
+        <div><dt>Today</dt><dd class="mono" id="hb-focus-today">—</dd></div>
+      </dl>
+      <div class="co-row hb-wrap">
+        <button class="btn-primary" id="hb-focus-25" type="button">Focus 25 min</button>
+        <button class="btn-ghost" id="hb-focus-50" type="button">50 min</button>
+        <button class="btn-ghost" id="hb-focus-stop" type="button">Stop</button>
+      </div>
+      <p class="co-note" id="hb-focus-note"></p>
+    </section>
+
+    <section class="card co-card hb-card" id="hb-ideas-card">
+      <header class="card-head">
+        <h2>Ideas</h2>
+        <span class="card-meta">
+          <span class="tag" id="hb-ideas-count">—</span>
+          <a class="btn-ghost" href="/api/hub/ideas.md" download="ideas.md">Export</a>
+        </span>
+      </header>
+      <form class="as-input" id="hb-idea-form" autocomplete="off">
+        <input type="text" id="hb-idea-text" maxlength="600" placeholder="Write an idea, or say “remember this idea…”">
+        <button type="submit" class="btn-primary">Save</button>
+      </form>
+      <input type="search" class="hb-search" id="hb-idea-search" placeholder="Search ideas" aria-label="Search ideas">
+      <ul class="bd-list" id="hb-ideas"></ul>
+    </section>
+
+    <section class="card co-card hb-card" id="hb-music-card">
+      <header class="card-head">
+        <h2>Music</h2>
+        <span class="card-meta"><span class="tag" id="hb-music-state">Spotify —</span></span>
+      </header>
+      <p class="co-note" id="hb-now">—</p>
+      <form class="as-input" id="hb-play-form" autocomplete="off">
+        <input type="text" id="hb-play-text" maxlength="120" placeholder="Song, artist or playlist">
+        <button type="submit" class="btn-primary">Play</button>
+      </form>
+      <div class="co-row hb-wrap">
+        <button class="btn-ghost" data-sp="previous" type="button" aria-label="Previous">⏮</button>
+        <button class="btn-ghost" data-sp="pause" type="button" aria-label="Pause">⏸</button>
+        <button class="btn-ghost" data-sp="resume" type="button" aria-label="Play">▶</button>
+        <button class="btn-ghost" data-sp="next" type="button" aria-label="Next">⏭</button>
+        <label class="co-note hb-vol">Volume <input type="range" id="hb-vol" min="0" max="100" value="50"></label>
+      </div>
+    </section>
+
+    <section class="card co-card hb-card" id="hb-accounts-card">
+      <header class="card-head">
+        <h2>Connected accounts</h2>
+        <span class="card-meta"><span class="tag" id="hb-acc-lock">—</span></span>
+      </header>
+      <ul class="hb-accounts" id="hb-accounts"></ul>
+      <details class="bd-settings" id="hb-finish-box">
+        <summary>Finish connecting (browser not on the robot)</summary>
+        <form class="ps-form bd-form" id="hb-finish">
+          <p class="co-note">After you approve, the browser shows “can't connect to 127.0.0.1”. That's expected: copy that page's
+            whole address and paste it here.</p>
+          <label>Address <input type="text" name="url" maxlength="4000" placeholder="http://127.0.0.1:8000/oauth/…?code=…&amp;state=…"></label>
+          <button type="submit" class="btn-ghost co-primary">Finish</button>
+        </form>
+      </details>
+      <ul class="hb-keys" id="hb-keys"></ul>
+      <p class="co-note" id="hb-acc-security"></p>
+    </section>
+
+    <section class="card co-card hb-card" id="hb-costs-card">
+      <header class="card-head">
+        <h2>API costs</h2>
+        <span class="card-meta"><span class="tag" id="hb-cost-state">—</span></span>
+      </header>
+      <dl class="stats stats-3">
+        <div><dt>Claude today</dt><dd class="mono" id="hb-cost-today">—</dd></div>
+        <div><dt>This month</dt><dd class="mono" id="hb-cost-month">—</dd></div>
+        <div><dt>Calls today</dt><dd class="mono" id="hb-cost-calls">—</dd></div>
+      </dl>
+      <p class="co-note" id="hb-cost-note"></p>
+      <form class="ps-form bd-form hb-inline" id="hb-cap-form">
+        <label>Daily Claude cap (USD, 0 = none) <input type="number" name="daily_cap_usd" min="0" max="20" step="0.05"></label>
+        <button type="submit" class="btn-ghost co-primary">Save</button>
+      </form>
+      <details class="bd-settings">
+        <summary>Every outside service and what it costs</summary>
+        <ul class="hb-services" id="hb-services"></ul>
+      </details>
+    </section>

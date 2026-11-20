@@ -37,13 +37,14 @@
       li.appendChild(el("div", "bubble bot" + (e.error ? " err" : ""), e.speech || "…"));
       const meta = el("div", "turn-meta");
       meta.appendChild(el("span", null, `${e.backend}${e.ms ? ` · ${(e.ms / 1000).toFixed(1)} s` : ""}${e.image ? " · saw camera" : ""}`));
+      if (e.sound && e.sound !== "none") meta.appendChild(el("span", "chip", `♪ ${e.sound.replace(/_/g, " ")}`));
       for (const t of e.tools || []) meta.appendChild(el("span", "chip" + (t.error ? " bad" : ""), `🔧 ${t.name}`));
       for (const c of e.commands || []) meta.appendChild(el("span", "chip", c.amount ? `${c.action} ${+c.amount.toFixed(2)}` : c.action));
       for (const p of e.problems || []) meta.appendChild(el("span", "chip bad", p));
       li.appendChild(meta);
       const det = el("details");
       det.appendChild(el("summary", null, "JSON"));
-      det.appendChild(el("pre", null, JSON.stringify({ speech: e.speech, mood: e.mood, commands: e.commands }, null, 2)));
+      det.appendChild(el("pre", null, JSON.stringify({ speech: e.speech, mood: e.mood, sound: e.sound || "none", commands: e.commands }, null, 2)));
       li.appendChild(det);
       return li;
     }));

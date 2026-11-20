@@ -1,0 +1,83 @@
+    <!-- ===== deskbot buddy (spliced in by deskbot/buddy/app.py) ===== -->
+    <section class="card co-card bd-card" id="bd-tasks-card">
+      <header class="card-head">
+        <h2>Tasks</h2>
+        <span class="card-meta">
+          <span class="tag" id="bd-task-count">—</span>
+          <button class="btn-ghost" id="bd-party" title="Try the celebration">🎉 Celebrate</button>
+        </span>
+      </header>
+      <div class="bd-confetti" id="bd-confetti" aria-hidden="true"></div>
+      <form class="as-input bd-add" id="bd-add" autocomplete="off">
+        <input type="text" id="bd-add-text" maxlength="160" placeholder="Add a task… e.g. submit the report by 5pm tomorrow">
+        <button type="submit" class="btn-primary">Add</button>
+      </form>
+      <p class="co-note">Or just tell the robot: “remind me to call the bank at 4”, “I finished the report”, “what's on my list?”</p>
+      <ul class="bd-list" id="bd-open" aria-live="polite"></ul>
+      <details class="bd-done-wrap">
+        <summary id="bd-done-sum">Done</summary>
+        <ul class="bd-list bd-done" id="bd-done"></ul>
+      </details>
+      <details class="bd-settings">
+        <summary>Reminder settings</summary>
+        <form class="ps-form bd-form" id="bd-task-settings">
+          <label>Heads-up before a deadline (minutes) <input type="number" name="remind_before_min" min="0" max="1440"></label>
+          <label>Nudge after a missed deadline (minutes) <input type="number" name="overdue_after_min" min="5" max="1440"></label>
+          <label class="bd-check"><input type="checkbox" name="celebrate"> Celebrate finished tasks</label>
+          <label class="bd-check"><input type="checkbox" name="move"> Move (victory dance, reminder nudge)</label>
+          <button type="submit" class="btn-ghost co-primary">Save</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="card co-card bd-card" id="bd-notify-card">
+      <header class="card-head">
+        <h2>Phone notifications</h2>
+        <span class="card-meta"><span class="tag" id="bd-notify-state">—</span></span>
+      </header>
+      <p class="co-note">Only important ones are read aloud. Codes and passwords are never read, never sent to the AI and never kept.</p>
+      <ul class="bd-list bd-notes" id="bd-notes" aria-live="polite"></ul>
+      <details class="bd-settings">
+        <summary>Try one</summary>
+        <form class="ps-form bd-form" id="bd-test">
+          <div class="co-chips" id="bd-samples"></div>
+          <label>App <input type="text" name="app" maxlength="40" placeholder="WhatsApp"></label>
+          <label>From / title <input type="text" name="title" maxlength="80" placeholder="Mom"></label>
+          <label>Text <input type="text" name="text" maxlength="200" placeholder="Call me when you're free, it's urgent"></label>
+          <button type="submit" class="btn-ghost co-primary">Send test notification</button>
+        </form>
+      </details>
+      <details class="bd-settings">
+        <summary>What counts as important</summary>
+        <form class="ps-form bd-form" id="bd-notify-settings">
+          <label class="bd-check"><input type="checkbox" name="enabled"> Read important notifications aloud</label>
+          <label class="bd-check"><input type="checkbox" name="use_ai"> Let the AI judge the unclear ones</label>
+          <label class="bd-check"><input type="checkbox" name="read_text"> Read the message itself (off: only who it's from)</label>
+          <label class="bd-check"><input type="checkbox" name="hold_when_away"> Hold them while I'm away or asleep</label>
+          <label class="bd-check"><input type="checkbox" name="move"> Nudge with each one</label>
+          <label>Always important: people (comma-separated) <input type="text" name="vip" placeholder="Mom, Dad, Priya"></label>
+          <label>Always important: words <input type="text" name="keywords" placeholder="exam, interview, delivery"></label>
+          <label>Always important: apps <input type="text" name="important_apps" placeholder="Calendar, Teams"></label>
+          <label>Never read: apps <input type="text" name="muted_apps" placeholder="Instagram, Swiggy"></label>
+          <div class="bd-row2">
+            <label>Quiet from <input type="time" name="quiet_start"></label>
+            <label>until <input type="time" name="quiet_end"></label>
+          </div>
+          <button type="submit" class="btn-ghost co-primary">Save</button>
+        </form>
+      </details>
+      <details class="bd-settings">
+        <summary>Connect your phone</summary>
+        <div class="bd-setup">
+          <p class="co-note">The phone sends each notification to this address over the same Wi-Fi:</p>
+          <p class="co-note mono" id="bd-url">—</p>
+          <p class="co-note">Token: <span class="mono" id="bd-token">—</span> <button class="btn-ghost" id="bd-new-token" type="button">New token</button></p>
+          <p class="co-note"><b>Android</b> (MacroDroid, Tasker or Automate): trigger <i>Notification received</i>, action
+            <i>HTTP request</i>: POST, content type <span class="mono">application/json</span>, body:</p>
+          <pre class="bd-pre mono" id="bd-example">—</pre>
+          <p class="co-note">Use the app's variables for the app name, title and text. <b>iPhone</b>: iOS doesn't let apps forward other
+            apps' notifications; a Shortcuts automation (“When I get a message from…”) with <i>Get contents of URL</i> works for messages.
+            Details: docs/buddy.md</p>
+        </div>
+      </details>
+    </section>

@@ -379,19 +379,29 @@ def build_companion_index():
     return page.encode("utf-8")
 
 
-def run_companion(sim=False, host="127.0.0.1", port=8000, camera=None, https_port=8443):
+def run_companion(sim=False, host="127.0.0.1", port=8000, camera=None, https_port=8443, handler_cls=None, on_ready=None):
+    """handler_cls / on_ready (19 Nov 2026): hooks for runtimes built on this one (buddy/app.py).
+    handler_cls subclasses CompanionHandler; on_ready(ctx, app, comp) runs once everything is up and returns a
+    close() to call first at shutdown (or None)."""
     cfg = load_config()
     apply_calibration(load_calibration(sim), cfg)
     ImuLiftDetector.cfg = cfg.companion.lift
-    base = make_setup(https_port, host, port, handler_cls=CompanionHandler, lift_cls=ImuLiftDetector)
+    handler_cls = handler_cls or CompanionHandler
+    base = make_setup(https_port, host, port, handler_cls=handler_cls, lift_cls=ImuLiftDetector)
 
     def setup(ctx):
         handler, base_close = base(ctx)
         comp = Companion(ctx, CompanionHandler.app, cfg).start()
         CompanionHandler.comp = comp
         ctx["robot"].log("info", f"Saving outputs to {CompanionHandler.app.outputs.folder}")
+        extra_close = on_ready(ctx, CompanionHandler.app, comp) if on_ready else None
 
         def close():
+            if extra_close:
+                try:
+                    extra_close()
+                except Exception as exc:
+                    print(f"[COMP ] {exc}", flush=True)
             comp.halt()
             base_close()
             comp.close()

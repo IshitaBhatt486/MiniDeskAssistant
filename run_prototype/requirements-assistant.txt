@@ -5,3 +5,6 @@ bleak>=0.22          # Bluetooth LE scanning (BlueZ over D-Bus on the Pi): wake/
 # Optional, offline speech-to-text on the Pi (no API key; ~1-2 s per short sentence with tiny.en):
 #   .venv/bin/pip install faster-whisper
 faster-whisper  # local speech to text (the default)
+vosk>=0.3.45    # "Hey Pip" wake word, on the robot (main.py full); the 40 MB model downloads on first use
+# Optional for main.py full (installed by scripts/setup.sh with apt): tesseract-ocr (reading pages without AI)
+# Optional: Ollama (ollama.com) for a local AI brain and reading; best on a laptop on the same Wi-Fi (docs/local-only.md)

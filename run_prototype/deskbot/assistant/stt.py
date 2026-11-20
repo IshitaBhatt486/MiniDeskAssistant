@@ -7,6 +7,9 @@ Backends (settings "stt"; "auto" picks the first available in this order):
             tiny.en takes ~1-2 s for a 5 s clip on a Pi 4, base.en ~3-5 s
     groq    Whisper large-v3-turbo on Groq's free tier - fast (~0.3 s), needs GROQ_API_KEY
     openai  OpenAI whisper-1, needs OPENAI_API_KEY
+    windows Windows' built-in offline recogniser (System.Speech dictation, via PowerShell), only on Windows.
+            Added 20 Nov 2026 so voice input can be tested in simulation on the laptop, where faster-whisper
+            is blocked and no API key is set. Tried last; less accurate than Whisper. Never present on the Pi.
 If the chosen backend fails, the next available one is tried; if all fail, the caller gets an
 SttError with a message that is spoken to the user.
 
@@ -16,6 +19,7 @@ an API call.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import math
@@ -142,12 +146,55 @@ class LocalWhisper:
                 os.unlink(path)
 
 
+_WINDOWS_STT_PS = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Speech
+$e = New-Object System.Speech.Recognition.SpeechRecognitionEngine ([Globalization.CultureInfo]'en-US')
+$e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+$e.SetInputToWaveFile($env:DESKBOT_STT_WAV)
+$e.InitialSilenceTimeout = [TimeSpan]::FromSeconds(60)   # file time, so null below means "end of the file"
+$e.BabbleTimeout = [TimeSpan]::Zero
+$out = @()
+# at the end of the file the input is detached and Recognize() throws instead of returning null
+while ($true) {
+  try { $r = $e.Recognize() } catch { if ($out.Count -eq 0 -and $_.Exception.Message -notmatch 'No audio input') { throw }; break }
+  if ($null -eq $r) { break }; $out += $r.Text
+}
+$e.Dispose()
+# base64 so the text survives PowerShell 5.1's console code page (e.g. the degree sign)
+Write-Output ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($out -join ' ')))
+"""
+
+
+class WindowsSpeech:
+    """Windows' offline recogniser (20 Nov 2026, simulation on the laptop). One PowerShell process per clip:
+    ~1-3 s including PowerShell's start-up. Needs the en-US recogniser, which Windows 10/11 ship with."""
+    name = "windows"
+
+    def available(self):
+        return os.name == "nt" and shutil.which("powershell") is not None
+
+    def transcribe(self, wav: bytes, timeout=20.0):
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(wav)
+            path = f.name
+        try:
+            p = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_STT_PS],
+                               capture_output=True, timeout=timeout, env={**os.environ, "DESKBOT_STT_WAV": path})
+            if p.returncode != 0:
+                raise RuntimeError(p.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or "PowerShell failed")
+            return base64.b64decode(p.stdout.strip() or b"").decode("utf-8", "replace").strip()
+        finally:
+            os.unlink(path)
+
+
 class Transcriber:
     def __init__(self, settings, alerts=None):
         self.settings = settings
         self.alerts = alerts
         self.backends = {"groq": GroqWhisper(), "openai": OpenAIWhisper(),
-                         "local": LocalWhisper(settings.get("local_whisper_model", "tiny.en"))}
+                         "local": LocalWhisper(settings.get("local_whisper_model", "tiny.en")),
+                         "windows": WindowsSpeech()}
         self.last = None    # {"backend", "ms", "text"} or {"error"}
 
     def order(self):
@@ -155,12 +202,15 @@ class Transcriber:
         if pref == "none":
             return []
         if pref == "local":                   # strictly local: audio is never sent anywhere as a fallback
-            return ["local"] if self.backends["local"].available() else []
-        names = ["local", "groq", "openai"]   # free and private first, when faster-whisper is installed
+            # (windows is on-device too, so it stays allowed here: 20 Nov 2026)
+            return [n for n in ("local", "windows") if n in self.backends and self.backends[n].available()]
+        names = ["local", "groq", "openai", "windows"]   # free and private first; windows only exists on the laptop
         if pref in names:
             names.remove(pref)
             names.insert(0, pref)
-        return [n for n in names if self.backends[n].available()]
+        if not self.settings.get("allow_paid_apis", False):
+            names.remove("openai")            # OpenAI Whisper is billed per minute (19 Nov 2026: off unless allowed)
+        return [n for n in names if n in self.backends and self.backends[n].available()]
 
     def status(self):
         return {"preference": self.settings.get("stt", "auto"),

@@ -1,7 +1,7 @@
 """
 The eye animations: hardcoded keyframe tables. Nothing here is generated at run time.
 
-    10 emotions x 5 animations = 50. When an emotion is invoked, eyes.FacePlayer picks one at random.
+    11 emotions x 5 animations = 55 (celebrating added 19 Nov 2026). When an emotion is invoked, eyes.FacePlayer picks one at random.
 
 An animation is a list of keyframes K(time_ms, easing, fx, **pose). `easing` is the name of a pytweening
 function used on the way INTO that keyframe. Pose fields not given take the emotion's BASE value:
@@ -16,7 +16,7 @@ function used on the way INTO that keyframe. Pose fields not given take the emot
     spread       extra distance between the eyes
     look         how much the eyes follow the user (0-1)
 
-`fx` is a small extra drawn from this keyframe until the next: z ? ! heart tear sweat spark dizzy
+`fx` is a small extra drawn from this keyframe until the next: z ? ! heart tear sweat spark dizzy confetti
 """
 
 from __future__ import annotations
@@ -25,7 +25,9 @@ from collections import namedtuple
 
 Keyframe = namedtuple("Keyframe", "ms ease fx pose")
 
-EMOTIONS = ("neutral", "happy", "excited", "curious", "sleepy", "sad", "confused", "scared", "annoyed", "embarrassed")
+# "celebrating" (19 Nov 2026, buddy/): a finished task. Appended last, so the indices of the others don't change.
+EMOTIONS = ("neutral", "happy", "excited", "curious", "sleepy", "sad", "confused", "scared", "annoyed", "embarrassed",
+            "celebrating")
 
 DEFAULT_POSE = {"w": 32.0, "h": 34.0, "r": 9.0, "open": 1.0, "left": 1.0, "right": 1.0, "dx": 0.0, "dy": 0.0,
                 "lid_in": 0.0, "lid_out": 0.0, "lid": 0.0, "cheek": 0.0, "spread": 0.0, "look": 1.0}
@@ -41,6 +43,7 @@ BASE = {
     "scared": {"w": 26.0, "h": 42.0, "r": 12.0, "spread": 4.0, "look": 0.2},
     "annoyed": {"lid_in": 13.0, "h": 28.0, "lid": 2.0, "look": 0.8},
     "embarrassed": {"h": 28.0, "lid": 4.0, "lid_out": 5.0, "cheek": 6.0, "dy": 4.0, "look": 0.1},
+    "celebrating": {"w": 36.0, "h": 38.0, "r": 12.0, "cheek": 12.0, "look": 0.4},
 }
 
 
@@ -120,6 +123,22 @@ ANIMATIONS["embarrassed"] = [
     ("nervous glances", [K(0, fx="sweat"), K(150, fx="sweat", dx=-10), K(420, fx="sweat", dx=-10), K(570, fx="sweat", dx=10), K(840, fx="sweat", dx=10), K(1000)]),
     ("squeeze shut", [K(0), K(180, "easeOutQuad", "sweat", open=0.15), K(800, fx="sweat", open=0.15), K(1050, "easeOutBack")]),
     ("sheepish peek", [K(0), K(300, open=0.35, dy=8), K(800, open=0.35, dy=8), K(1000, open=0.8, dx=7, dy=4), K(1500, open=0.8, dx=7, dy=4), K(1800)]),
+]
+
+ANIMATIONS["celebrating"] = [
+    ("confetti", [K(0, "linear", "confetti", open=0.6), K(220, "easeOutBack", "confetti", w=40, h=42, cheek=15),
+                  K(1600, fx="confetti", w=38, h=40), K(2000, fx="confetti")]),
+    ("victory bounce", [K(0, fx="confetti"), K(140, "easeOutQuad", "confetti", dy=-10), K(380, "easeOutBounce", "confetti"),
+                        K(520, "easeOutQuad", "confetti", dy=-8), K(760, "easeOutBounce", "confetti"),
+                        K(900, "easeOutQuad", "confetti", dy=-6), K(1150, "easeOutBounce", "confetti"), K(1600)]),
+    ("proud wink", [K(0, fx="spark"), K(200, "easeOutBack", "spark", cheek=15, dy=-3), K(420, "linear", "spark", right=0.08, cheek=15, dy=-3),
+                    K(800, "easeOutBack", "spark", cheek=15, dy=-3), K(1400)]),
+    ("spin eyes", [K(0, fx="confetti"), K(180, fx="confetti", dx=-8, dy=-5), K(360, fx="confetti", dx=8, dy=-5),
+                   K(540, fx="confetti", dx=8, dy=5), K(720, fx="confetti", dx=-8, dy=5), K(900, fx="confetti", dx=-8, dy=-5),
+                   K(1080, "easeOutBack", "confetti"), K(1500)]),
+    ("happy dance", [K(0, "linear", "heart"), K(160, "easeOutQuad", "heart", dx=-7, dy=-4), K(320, "easeOutQuad", "heart", dx=7, dy=-4),
+                     K(480, "easeOutQuad", "heart", dx=-7, dy=-4), K(640, "easeOutQuad", "heart", dx=7, dy=-4),
+                     K(900, "easeOutBounce", "confetti", cheek=15), K(1600, fx="confetti")]),
 ]
 
 # Blinks: (ms, open). One is chosen at random each time.

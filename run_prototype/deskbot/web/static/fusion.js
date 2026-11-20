@@ -472,6 +472,11 @@
     lut = null;
     render();
   });
+  // the pro dashboard's theme switch (layout.js, 20 Nov 2026)
+  window.addEventListener("deskbot-theme", () => {
+    lut = null;
+    render();
+  });
 
   pollFusion();
   pollVision();

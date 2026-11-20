@@ -3,6 +3,11 @@ The single entry point of the project: `python main.py`.
 
     python main.py                         menu of everything
     python main.py start [--sim] [--lan]   the whole robot
+    python main.py buddy [--sim] [--lan]   the whole robot + task list, reminders, celebrations, phone notifications
+    python main.py hub [--sim] [--lan]     buddy + ideas, focus mode, Google Calendar, Spotify, accounts, cost meter
+    python main.py full [--sim] [--lan]    every feature: wake word, routines, smart home, reader, guard, Telegram, ...
+    python main.py pro [--sim] [--lan]     full + configurable dashboard, touch pads, more IMU, Groq brain, voice studio
+    python main.py help [topic]            every feature and voice command (no robot needed)
     python main.py calibrate [--sim]       the complete calibration
     python main.py health [--sim] [--motors]   test every sensor and part, report health
     python main.py imu | face | gestures | outputs | check
@@ -90,20 +95,52 @@ def archive(source, target):
             ui.ok(f"Copied to {dest}")
 
 
-def cmd_start(sim=False, lan=False, host=None, port=8000, camera=None, https_port=8443):
+def cmd_help(topic=""):
+    """Every feature, its voice commands and the terminal commands (full/features.py CATALOG)."""
+    from ..full.features import help_text
+    try:
+        sys.stdout.reconfigure(errors="replace")     # Windows consoles: never crash on "·" or curly quotes
+    except (AttributeError, ValueError):
+        pass
+    print(help_text(topic))
+    return 0
+
+
+def cmd_start(sim=False, lan=False, host=None, port=8000, camera=None, https_port=8443, buddy=False, hub=False, full=False,
+              pro=False):
+    """buddy=True (19 Nov 2026): the buddy runtime (buddy/app.py) instead of the companion one."""
     from .app import run_companion
 
     host = host or ("0.0.0.0" if lan else "127.0.0.1")
     camera = camera or ("sim" if sim else "pi")
-    ui.header("Starting the desk robot" + (" (simulation)" if sim else ""),
-              "assistant + maps + camera + MPU-6050 + PID self-correction + OLED eyes + gestures + saved outputs")
+    full = full or pro      # pro (20 Nov 2026) is the full robot plus more
+    ui.header(("Starting the pro desk robot" if pro else "Starting the full desk robot" if full else "Starting the desk hub" if hub else "Starting the desk buddy" if buddy else "Starting the desk robot")
+              + (" (simulation)" if sim else ""),
+              "assistant + maps + camera + MPU-6050 + PID self-correction + OLED eyes + gestures + saved outputs"
+              + (" + tasks + reminders + phone notifications" if buddy or hub else "")
+              + (" + ideas + focus mode + Google Calendar + Spotify + cost meter" if hub or full else "")
+              + (" + wake word + routines + smart home + reader + guard + Telegram (python main.py help)" if full else "")
+              + (" + touch pads + knock/bump/shake/tip + Groq brain + voice studio + custom dashboard" if pro else ""))
     ip = base.lan_ip()
     ui.out(f"Dashboard  [bold]http://localhost:{port}[/bold]" + (f"   ·   [bold]http://{ip}:{port}[/bold]" if host == "0.0.0.0" and ip else ""))
     if host == "0.0.0.0":
         ui.warn("Listening on the network with no login: anyone on this Wi-Fi can drive the robot.")
     ui.out("[dim]Ctrl+C stops the motors, saves the final figures and quits.[/dim]\n")
     try:
-        run_companion(sim=sim, host=host, port=port, camera=camera, https_port=https_port)
+        if pro:
+            from ..pro.app import run_pro
+            run_pro(sim=sim, host=host, port=port, camera=camera, https_port=https_port)
+        elif full:
+            from ..full.app import run_full
+            run_full(sim=sim, host=host, port=port, camera=camera, https_port=https_port)
+        elif hub:
+            from ..hub.app import run_hub
+            run_hub(sim=sim, host=host, port=port, camera=camera, https_port=https_port)
+        elif buddy:
+            from ..buddy.app import run_buddy
+            run_buddy(sim=sim, host=host, port=port, camera=camera, https_port=https_port)
+        else:
+            run_companion(sim=sim, host=host, port=port, camera=camera, https_port=https_port)
     except Exception as exc:
         ui.fail(f"Could not start: {exc}")
         if "address" in str(exc).lower() or getattr(exc, "errno", None) in (98, 10048):
@@ -335,12 +372,12 @@ def cmd_check():
 
 # ---------------- menu ----------------
 
-def _start_menu(sim):
+def _start_menu(sim, buddy=False, hub=False, full=False, pro=False):
     camera = base._ask_camera("sim" if sim else "pi")
     if camera is None:
         return
-    lan = ui.confirm("Open the dashboard to other devices (phone/laptop)?", default=not sim)
-    cmd_start(sim=sim, lan=lan, camera=camera)
+    lan = ui.confirm("Open the dashboard to other devices (phone/laptop)?", default=not sim or buddy or hub or full)
+    cmd_start(sim=sim, lan=lan, camera=camera, buddy=buddy, hub=hub, full=full, pro=pro)
     ui.pause()
 
 
@@ -360,6 +397,14 @@ def menu():
         c = ui.choose("What do you want to do?", [
             ("🩺 Run all tests and report health", "health"),
             ("▶  Start the robot (everything)", "start"), ("▶  Start in simulation (no hardware)", "sim"),
+            ("🎉 Start the desk buddy (+ tasks, reminders, phone notifications)", "buddy"),
+            ("🎉 Desk buddy in simulation", "buddy-sim"),
+            ("🌟 Start the PRO robot (full + touch, Groq, voice studio, custom dashboard)", "pro"),
+            ("🌟 Pro robot in simulation", "pro-sim"),
+            ("⭐ Start the FULL robot (every feature)", "full"), ("⭐ Full robot in simulation", "full-sim"),
+            ("❓ Every feature and command (help)", "help"),
+            ("🧠 Start the desk hub (+ ideas, focus mode, Google, Spotify, costs)", "hub"),
+            ("🧠 Desk hub in simulation", "hub-sim"),
             ("🎯 Calibrate everything", "calibrate"), ("🎯 Calibrate in simulation", "calibrate-sim"),
             ("👀 Test the OLED eyes", "face"), ("🖼  Save a preview of all eye animations", "preview"),
             ("🧭 Live MPU-6050 readout", "imu"), ("✋ Show gesture settings", "gestures"),
@@ -371,6 +416,22 @@ def menu():
             return 0
         if c in ("start", "sim"):
             _start_menu(c == "sim")
+            continue
+        if c in ("buddy", "buddy-sim"):
+            _start_menu(c == "buddy-sim", buddy=True)
+            continue
+        if c in ("pro", "pro-sim"):
+            _start_menu(c == "pro-sim", pro=True)
+            continue
+        if c in ("full", "full-sim"):
+            _start_menu(c == "full-sim", full=True)
+            continue
+        if c == "help":
+            cmd_help()
+            ui.pause()
+            continue
+        if c in ("hub", "hub-sim"):
+            _start_menu(c == "hub-sim", hub=True)
             continue
         if c == "tools":
             _tools_menu()
@@ -427,6 +488,36 @@ def build_parser():
     s.add_argument("--port", type=int, default=8000)
     s.add_argument("--https-port", type=int, default=8443, help="HTTPS for browser microphones (0 = off)")
     s.add_argument("--camera", help="pi | webcam | sim | none | <index> | <video>")
+    b = sub.add_parser("buddy", help="the whole robot + task list, reminders, celebrations, phone notifications")
+    b.add_argument("--sim", action="store_true", help="simulated robot, desk, camera and phone")
+    b.add_argument("--lan", action="store_true", help="reachable from other devices (needed for the phone)")
+    b.add_argument("--host")
+    b.add_argument("--port", type=int, default=8000)
+    b.add_argument("--https-port", type=int, default=8443, help="HTTPS for browser microphones (0 = off)")
+    b.add_argument("--camera", help="pi | webcam | sim | none | <index> | <video>")
+    fl = sub.add_parser("full", help="every feature: wake word, routines, smart home, reader, guard, Telegram, games, ...")
+    fl.add_argument("--sim", action="store_true", help="simulated robot, desk, camera and phone")
+    fl.add_argument("--lan", action="store_true", help="reachable from other devices")
+    fl.add_argument("--host")
+    fl.add_argument("--port", type=int, default=8000)
+    fl.add_argument("--https-port", type=int, default=8443, help="HTTPS for browser microphones (0 = off)")
+    fl.add_argument("--camera", help="pi | webcam | sim | none | <index> | <video>")
+    pr = sub.add_parser("pro", help="full + configurable dashboard, touch pads, more IMU, Groq brain, voice studio")
+    pr.add_argument("--sim", action="store_true", help="simulated robot, desk, camera and phone")
+    pr.add_argument("--lan", action="store_true", help="reachable from other devices")
+    pr.add_argument("--host")
+    pr.add_argument("--port", type=int, default=8000)
+    pr.add_argument("--https-port", type=int, default=8443, help="HTTPS for browser microphones (0 = off)")
+    pr.add_argument("--camera", help="pi | webcam | sim | none | <index> | <video>")
+    hp = sub.add_parser("help", help="every feature, its voice commands and the terminal commands")
+    hp.add_argument("topic", nargs="?", default="", help="a feature or group, e.g. talking, guard, cli")
+    hb = sub.add_parser("hub", help="buddy + ideas, focus mode, Google Calendar, Spotify, connected accounts, cost meter")
+    hb.add_argument("--sim", action="store_true", help="simulated robot, desk, camera and phone")
+    hb.add_argument("--lan", action="store_true", help="reachable from other devices")
+    hb.add_argument("--host")
+    hb.add_argument("--port", type=int, default=8000)
+    hb.add_argument("--https-port", type=int, default=8443, help="HTTPS for browser microphones (0 = off)")
+    hb.add_argument("--camera", help="pi | webcam | sim | none | <index> | <video>")
     c = sub.add_parser("calibrate", help="the complete calibration")
     c.add_argument("--sim", action="store_true")
     c.add_argument("--camera", help="pi | webcam | sim | none")
@@ -471,6 +562,16 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.cmd in (None, "menu"):
         return menu()
+    if args.cmd == "pro":
+        return cmd_start(args.sim, args.lan, args.host, args.port, args.camera, args.https_port, pro=True)
+    if args.cmd == "full":
+        return cmd_start(args.sim, args.lan, args.host, args.port, args.camera, args.https_port, full=True)
+    if args.cmd == "help":
+        return cmd_help(args.topic)
+    if args.cmd == "hub":
+        return cmd_start(args.sim, args.lan, args.host, args.port, args.camera, args.https_port, hub=True)
+    if args.cmd == "buddy":
+        return cmd_start(args.sim, args.lan, args.host, args.port, args.camera, args.https_port, buddy=True)
     if args.cmd == "start":
         return cmd_start(args.sim, args.lan, args.host, args.port, args.camera, args.https_port)
     if args.cmd == "calibrate":

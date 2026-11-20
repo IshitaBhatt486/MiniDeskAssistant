@@ -1,0 +1,21 @@
+# Smoke test for tools/sim_console.py:  python tools/sim_console.py --script tools/sim_scenarios/smoke.txt
+# Each line is one console command. "expect a|b" checks the last reply; "expect move x|y" checks what the robot did.
+
+# typed text
+turn left 90
+expect move turn_left
+# the whole voice pipeline: PC text-to-speech -> WAV -> speech to text -> brain
+:voice turn right
+expect move turn_right
+# direct command, no AI
+:do spin 1
+expect move spin
+# simulated events
+:lift on
+:lift off
+:phone on
+:gesture Thumb_Up
+expect move dance
+:state
+# a terminal command
+:cli help guard

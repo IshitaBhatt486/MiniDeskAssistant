@@ -3,8 +3,10 @@ The command vocabulary: the ONLY things the AI may ask the robot to do, and the 
 
 The AI's reply is JSON (enforced with structured outputs, see brain.py):
 
-    {"speech": "Spinning!", "mood": "excited",
+    {"speech": "Spinning!", "mood": "excited", "sound": "whoosh",
      "commands": [{"action": "spin", "amount": 1}, {"action": "move_forward", "amount": 0.5}]}
+
+"sound" is one of SOUNDS ("none" = no effect); it is played just before the speech (core.py).
 
 `amount` means different things per action (ACTIONS[...]["amount"]); it is clamped to a safe range, so a
 confused model can't ask for a 60 s drive. At most MAX_COMMANDS run per reply.
@@ -66,11 +68,48 @@ ACTIONS = {
 }
 MOODS = ["happy", "neutral", "excited", "curious", "sleepy", "sad", "confused"]
 
+# Sound effects the AI may pick (19 Nov 2026). Synthesised in motifs.py; played just before the speech.
+SOUNDS = {
+    "none": "no sound (the usual choice)",
+    "tada": "ta-da! something finished or revealed",
+    "ding": "a bright ding: correct, got it, an idea",
+    "pop": "a quick pop: small and playful",
+    "boing": "a springy boing: silly or surprising",
+    "whoosh": "a whoosh: fast movement, spinning, zooming off",
+    "giggle": "a little giggle: something funny",
+    "rimshot": "ba-dum-tss: after a joke or a pun",
+    "drumroll": "a short drum roll: building suspense before an answer",
+    "sad_trombone": "wah-wah: a small failure or bad news, said kindly",
+    "beep_boop": "robot beeps: greeting, thinking, being a robot",
+    "fanfare": "a short victory fanfare: big achievements",
+    "notification": "a soft two-note chime: news, a message",
+    "reminder": "a gentle three-note chime: a reminder",
+    "gasp": "a quick rising gasp: surprise",
+    "yawn": "a slow falling sigh: tired, bored, sleepy",
+}
+
+ACTIONS["celebrate"] = {"amount": None, "help": "a little victory celebration on the spot (wiggle, spin or hop); "
+                                                "use it when the user achieves something"}
+ACTIONS["nudge"] = {"amount": None, "help": "a small attention wiggle, like tapping the user on the shoulder"}
+
+# celebrate / nudge routines: ("left" | "right", degrees) turns or ("forward" | "backward", seconds) moves.
+# Each one ends where it started (equal left/right and forward/backward).
+CELEBRATIONS = {
+    "victory spin": [("left", 360)],
+    "happy wiggle": [("left", 20), ("right", 40), ("left", 40), ("right", 20)],
+    "hop hop": [("forward", 0.15), ("backward", 0.15), ("forward", 0.15), ("backward", 0.15), ("left", 15), ("right", 15)],
+    "twist and shout": [("right", 90), ("left", 180), ("right", 90)],
+}
+NUDGE = [("left", 12), ("right", 24), ("left", 12)]
+
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "speech": {"type": "string", "description": "What the robot says out loud. 1-3 short sentences, no emoji or markdown."},
         "mood": {"type": "string", "enum": MOODS},
+        "sound": {"type": "string", "enum": list(SOUNDS),
+                  "description": "A sound effect played just before the speech, or \"none\". Use one only when it adds "
+                                 "something; most replies use \"none\"."},
         "commands": {
             "type": "array",
             "description": "Robot actions to run in order. Empty if the user didn't ask for movement.",
@@ -87,9 +126,13 @@ RESPONSE_SCHEMA = {
             },
         },
     },
-    "required": ["speech", "mood", "commands"],
+    "required": ["speech", "mood", "sound", "commands"],
     "additionalProperties": False,
 }
+
+
+def describe_sounds():
+    return "\n".join(f"- {name}: {desc}" for name, desc in SOUNDS.items())
 
 
 def describe_actions():
@@ -154,6 +197,7 @@ class Executor:
         self.last = None                  # {"commands", "result", "t"}
         self.rng = random.Random()
         self.last_dance = None
+        self.last_celebration = None
 
     def on_command(self, fn):
         """fn(command dict) -> False to veto it. Called on the worker thread before each command."""
@@ -257,6 +301,12 @@ class Executor:
             return self._turn(gen, "left", 360 * amt)
         if a == "dance":
             return self._dance(gen)
+        if a == "celebrate":
+            self.last_celebration = self.rng.choice([n for n in CELEBRATIONS if n != self.last_celebration])
+            self.sv.robot.log("info", f"Celebrating: {self.last_celebration}")
+            return self._routine(gen, CELEBRATIONS[self.last_celebration])
+        if a == "nudge":
+            return self._routine(gen, NUDGE)
         if a == "look_around":
             for _ in range(8):           # 8 x 45 deg with pauses, so the camera gets sharp frames to map
                 why = self._turn(gen, "left", 45)
@@ -312,6 +362,16 @@ class Executor:
                 return why
         return None
 
+    def _routine(self, gen, steps):
+        """celebrate / nudge: short turns (degrees) and moves (seconds), each through the safety rules."""
+        for move, value in steps:
+            if self._cancelled(gen):
+                return "cancelled"
+            why = self._turn(gen, move, value) if move in ("left", "right") else self._move(gen, move, value)
+            if why:
+                return why
+        return None
+
     def _face_user_once(self, gen):
         from ..runtime.behaviour import pick_user
         res = self.sv.behaviour.vision.latest()
@@ -326,4 +386,5 @@ class Executor:
         return self._turn(gen, "left" if deg > 0 else "right", abs(deg))
 
     def status(self):
-        return {"current": self.current, "last": self.last, "last_dance": self.last_dance}
+        return {"current": self.current, "last": self.last, "last_dance": self.last_dance,
+                "last_celebration": self.last_celebration}

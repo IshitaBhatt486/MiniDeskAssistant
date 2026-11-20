@@ -1,0 +1,156 @@
+    <!-- ===== deskbot full (spliced in by deskbot/full/app.py) ===== -->
+    <section class="card co-card fu-card fu-wide" id="fu-features-card">
+      <header class="card-head">
+        <h2>Features</h2>
+        <span class="card-meta">
+          <label class="fu-switch" title="Switch off everything that needs the internet (PIN)">
+            <input type="checkbox" id="fu-local-only"> Local only
+          </label>
+        </span>
+      </header>
+      <p class="co-note">Switch any feature on or off. Guard, owner recognition, Telegram and local-only need the admin PIN.
+        Every command is also listed in the terminal: <span class="mono">python main.py help</span></p>
+      <div class="fu-groups" id="fu-features"></div>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-wake-card">
+      <header class="card-head"><h2>Wake word</h2><span class="card-meta"><span class="tag" id="fu-wake-state">—</span></span></header>
+      <p class="fu-big" id="fu-wake-phrase">“Hey Pip”</p>
+      <p class="co-note" id="fu-wake-note">—</p>
+      <form class="as-input" id="fu-wake-form" autocomplete="off">
+        <input type="text" id="fu-wake-text" maxlength="300" placeholder="Simulate: what's the time?">
+        <button type="submit" class="btn-ghost co-primary">Say “Hey Pip, …”</button>
+      </form>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-brief-card">
+      <header class="card-head"><h2>Briefings</h2><span class="card-meta"><span class="tag" id="fu-brief-state">—</span></span></header>
+      <div class="co-row hb-wrap">
+        <button class="btn-primary" type="button" data-brief="morning">☀️ Morning briefing</button>
+        <button class="btn-ghost" type="button" data-brief="evening">🌙 Evening review</button>
+      </div>
+      <p class="co-note" id="fu-brief-text">Say “good morning”, “brief me” or “how was my day?”.</p>
+      <form class="ps-form bd-form hb-inline fu-3" id="fu-brief-form">
+        <label class="bd-check"><input type="checkbox" name="auto"> Automatic</label>
+        <label>Morning <input type="time" name="morning_time"></label>
+        <label>Evening <input type="time" name="evening_time"></label>
+        <label class="bd-check"><input type="checkbox" name="telegram"> Also on Telegram</label>
+        <button type="submit" class="btn-ghost co-primary">Save</button>
+      </form>
+    </section>
+
+    <section class="card co-card fu-card fu-wide" id="fu-routines-card">
+      <header class="card-head"><h2>Routines</h2><span class="card-meta"><span class="tag" id="fu-rt-state">—</span>
+        <button class="btn-ghost" type="button" id="fu-rt-new">New</button></span></header>
+      <p class="co-note">Your own phrases that run several steps. Each is a JSON file in <span class="mono" id="fu-rt-folder">data/routines</span>.
+        Or tell the robot: “make a routine called movie night that turns off the lamp and plays jazz”.</p>
+      <ul class="bd-list" id="fu-routines"></ul>
+      <details class="bd-settings" id="fu-rt-editor">
+        <summary id="fu-rt-editor-title">Edit routine</summary>
+        <form class="ps-form bd-form" id="fu-rt-form">
+          <textarea name="json" rows="14" class="mono fu-json" spellcheck="false" aria-label="Routine JSON"></textarea>
+          <p class="co-note" id="fu-rt-steps"></p>
+          <div class="co-row"><button type="submit" class="btn-ghost co-primary">Save</button><span class="co-note" id="fu-rt-msg"></span></div>
+        </form>
+      </details>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-home-card">
+      <header class="card-head"><h2>Smart home</h2><span class="card-meta"><span class="tag" id="fu-home-state">—</span></span></header>
+      <ul class="bd-list" id="fu-devices"></ul>
+      <details class="bd-settings">
+        <summary>Add a device</summary>
+        <form class="ps-form bd-form" id="fu-home-form">
+          <label>Name you'll say <input type="text" name="name" maxlength="40" placeholder="desk lamp"></label>
+          <label>Type <select name="type"><option value="homeassistant">Home Assistant</option><option value="shelly">Shelly (Gen2+)</option>
+            <option value="shelly1">Shelly (Gen1)</option><option value="tasmota">Tasmota</option></select></label>
+          <label>Entity id (Home Assistant) <input type="text" name="entity_id" placeholder="light.desk_lamp"></label>
+          <label>Address (Shelly / Tasmota) <input type="text" name="host" placeholder="192.168.1.50"></label>
+          <div class="co-row"><button type="submit" class="btn-ghost co-primary">Add</button>
+            <button type="button" class="btn-ghost" id="fu-discover">Find Home Assistant devices</button></div>
+          <ul class="hb-services" id="fu-found"></ul>
+        </form>
+      </details>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-reader-card">
+      <header class="card-head"><h2>Read this for me</h2><span class="card-meta"><span class="tag" id="fu-read-state">—</span></span></header>
+      <div class="co-row hb-wrap">
+        <label class="btn-primary fu-file">📷 Photo of a page<input type="file" id="fu-read-file" accept="image/jpeg,image/png" capture="environment" hidden></label>
+        <button class="btn-ghost" type="button" id="fu-read-camera">Robot camera</button>
+        <select id="fu-read-extra" aria-label="Also make"><option value="">Just read</option><option value="summary">+ summary</option>
+          <option value="flashcards">+ flashcards</option></select>
+      </div>
+      <p class="co-note" id="fu-read-note">—</p>
+      <ul class="co-files" id="fu-reads"></ul>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-water-card">
+      <header class="card-head"><h2>Hydration</h2><span class="card-meta"><button class="btn-ghost" type="button" id="fu-drink">+1 drink</button></span></header>
+      <div class="hb-focus-big"><span class="hb-clock mono" id="fu-water-count">—</span><span class="co-note" id="fu-water-note">—</span></div>
+      <div class="fu-bars" id="fu-water-week" aria-label="Drinks per day this week"></div>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-games-card">
+      <header class="card-head"><h2>Rock, paper, scissors</h2><span class="card-meta"><span class="tag" id="fu-rps-state">—</span></span></header>
+      <p class="fu-big mono" id="fu-rps-score">You 0 · Pip 0</p>
+      <p class="co-note" id="fu-rps-note">Fist = rock, flat hand = paper, peace sign = scissors. Or say it.</p>
+      <div class="co-row hb-wrap">
+        <button class="btn-primary" type="button" id="fu-rps-start">Play</button>
+        <button class="btn-ghost" type="button" data-rps="rock">✊</button>
+        <button class="btn-ghost" type="button" data-rps="paper">✋</button>
+        <button class="btn-ghost" type="button" data-rps="scissors">✌️</button>
+        <button class="btn-ghost" type="button" id="fu-rps-stop">Stop</button>
+      </div>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-people-card">
+      <header class="card-head"><h2>People</h2><span class="card-meta"><span class="tag" id="fu-people-state">—</span></span></header>
+      <ul class="bd-list" id="fu-people"></ul>
+      <form class="ps-form bd-form" id="fu-learn">
+        <label>Your name (how the robot greets you) <input type="text" name="owner_name" maxlength="30"></label>
+        <label>Learn a face <input type="text" name="name" maxlength="30" placeholder="name"></label>
+        <label>As <select name="role"><option value="owner">the owner</option><option value="friend">a friend</option></select></label>
+        <button type="submit" class="btn-ghost co-primary">Learn (look at the robot ~8 s)</button>
+      </form>
+      <p class="co-note">Only numbers describing a face are kept, on the robot (never a photo, never sent anywhere).</p>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-guard-card">
+      <header class="card-head"><h2>Guard mode</h2><span class="card-meta"><span class="tag" id="fu-guard-state">—</span></span></header>
+      <div class="co-row hb-wrap">
+        <button class="btn-primary" type="button" id="fu-arm">Guard my desk</button>
+        <button class="btn-ghost" type="button" id="fu-disarm">Stop (PIN)</button>
+        <button class="btn-ghost" type="button" id="fu-guard-del">Delete photos (PIN)</button>
+      </div>
+      <form class="ps-form bd-form" id="fu-guard-form">
+        <label>Passphrase visitors can say (empty = none) <input type="password" name="passphrase" maxlength="40" autocomplete="off"></label>
+        <label class="bd-check"><input type="checkbox" name="auto_arm"> Guard automatically when my phone leaves</label>
+        <button type="submit" class="btn-ghost co-primary">Save (PIN)</button>
+      </form>
+      <ul class="bd-list bd-notes" id="fu-guard-events"></ul>
+      <div class="fu-photos" id="fu-guard-photos"></div>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-telegram-card">
+      <header class="card-head"><h2>Telegram</h2><span class="card-meta"><span class="tag" id="fu-tg-state">—</span></span></header>
+      <p class="co-note" id="fu-tg-note">—</p>
+      <p class="fu-big mono" id="fu-tg-code" hidden></p>
+      <div class="co-row hb-wrap">
+        <button class="btn-primary" type="button" id="fu-tg-pair">Pair my chat (PIN)</button>
+        <button class="btn-ghost" type="button" id="fu-tg-test">Send a test</button>
+        <button class="btn-ghost" type="button" id="fu-tg-unpair">Unpair (PIN)</button>
+      </div>
+    </section>
+
+    <section class="card co-card fu-card" id="fu-llm-card">
+      <header class="card-head"><h2>Local AI</h2><span class="card-meta"><span class="tag" id="fu-llm-state">—</span></span></header>
+      <p class="co-note" id="fu-llm-note">—</p>
+      <form class="ps-form bd-form" id="fu-llm-form">
+        <label>Text model <input type="text" name="text_model" maxlength="60"></label>
+        <label>Vision model (reading) <input type="text" name="vision_model" maxlength="60"></label>
+        <label>Reader <select name="ocr"><option value="auto">auto (local first)</option><option value="ollama">local vision model</option>
+          <option value="tesseract">Tesseract OCR</option><option value="claude">Claude</option></select></label>
+        <button type="submit" class="btn-ghost co-primary">Save</button>
+      </form>
+    </section>

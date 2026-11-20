@@ -1,0 +1,165 @@
+    <!-- ===== pro (20 Nov 2026): voice studio, touch, motion, AI brain, APIs, accounts ===== -->
+    <section class="card co-card pro-card" id="pro-voice-card">
+      <header class="card-head">
+        <h2>Voice studio</h2>
+        <span class="card-meta"><span class="tag" id="pv-engine">—</span></span>
+      </header>
+      <label class="field-label" for="pv-profile">Personality profile</label>
+      <div class="pro-row">
+        <select id="pv-profile" class="pro-input"></select>
+        <button type="button" class="btn-ghost" id="pv-apply">Use</button>
+      </div>
+      <p class="pro-hint" id="pv-profile-text"></p>
+      <div class="pro-sliders">
+        <label>Pitch <output class="mono" id="pv-pitch-v">0</output>
+          <input type="range" id="pv-pitch" min="-12" max="12" step="0.5"></label>
+        <label>Speed <output class="mono" id="pv-speed-v">1.0×</output>
+          <input type="range" id="pv-speed" min="0.5" max="2" step="0.05"></label>
+        <label>Loudness <output class="mono" id="pv-volume-v">90%</output>
+          <input type="range" id="pv-volume" min="0" max="1" step="0.05"></label>
+        <label>Chipmunk amount <output class="mono" id="pv-factor-v">1.6</output>
+          <input type="range" id="pv-factor" min="1" max="2.5" step="0.1"></label>
+      </div>
+      <div class="pro-grid2">
+        <label>Voice type<select id="pv-style" class="pro-input"></select></label>
+        <label>Engine voice<select id="pv-name" class="pro-input"><option value="">Default</option></select></label>
+        <label>Gender<select id="pv-gender" class="pro-input"></select></label>
+        <label>Test sentence<input type="text" id="pv-text" class="pro-input" maxlength="200" value="Hi! I'm Pip, your desk robot."></label>
+      </div>
+      <div class="pro-row">
+        <button type="button" class="btn-primary" id="pv-test">▶ Test voice</button>
+        <button type="button" class="btn-ghost" id="pv-save">Save as profile…</button>
+        <button type="button" class="btn-ghost" id="pv-delete" hidden>Delete profile</button>
+        <span class="form-msg" id="pv-msg" role="status"></span>
+      </div>
+    </section>
+
+    <section class="card co-card pro-card" id="pro-touch-card">
+      <header class="card-head">
+        <h2>Touch &amp; headpats</h2>
+        <span class="card-meta"><span class="tag" id="pt-backend">—</span></span>
+      </header>
+      <div class="pt-head" aria-label="Touch pads">
+        <button type="button" class="pt-pad" data-pad="left" title="Left pad (GPIO 8): click to pretend a pat">Left<small>GPIO 8</small></button>
+        <button type="button" class="pt-pad" data-pad="top" title="Top pad (GPIO 7): click to pretend a pat">Top<small>GPIO 7</small></button>
+        <button type="button" class="pt-pad" data-pad="right" title="Right pad (GPIO 14): click to pretend a pat">Right<small>GPIO 14</small></button>
+      </div>
+      <p class="pro-hint">Click a pad to pretend a pat · hold the mouse for a long pat · click left → top → right for a stroke.</p>
+      <div class="pro-stats">
+        <div><b class="mono" id="pt-today">0</b><span>headpats today</span></div>
+        <div><b class="mono" id="pt-last">—</b><span>last reaction</span></div>
+      </div>
+      <ul class="pro-events" id="pt-events"><li class="muted">No touches yet.</li></ul>
+      <details class="pro-details">
+        <summary>Settings</summary>
+        <div class="pro-switches">
+          <label class="switch"><input type="checkbox" data-pro="touch.enabled"><span>Pads on</span></label>
+          <label class="switch"><input type="checkbox" data-pro="touch.speak"><span>Talk back</span></label>
+          <label class="switch"><input type="checkbox" data-pro="touch.move"><span>Wiggle</span></label>
+        </div>
+        <div class="pro-grid2">
+          <label>Pad type<select class="pro-input" data-pro="touch.mode">
+            <option value="momentary">Momentary (default)</option><option value="toggle">Self-locking (jumper B)</option></select></label>
+          <label>Long pat after (s)<input type="number" class="pro-input" data-pro="touch.hold_s" min="0.5" max="5" step="0.1"></label>
+          <label>Talk at most every (s)<input type="number" class="pro-input" data-pro="touch.cooldown_s" min="0.5" max="30" step="0.5"></label>
+          <label>Pats for "excited"<input type="number" class="pro-input" data-pro="touch.pats_for_excited" min="2" max="10" step="1"></label>
+        </div>
+      </details>
+    </section>
+
+    <section class="card co-card pro-card" id="pro-motion-card">
+      <header class="card-head">
+        <h2>Motion sense (MPU-6050)</h2>
+        <span class="card-meta"><span class="tag" id="pm-state">—</span></span>
+      </header>
+      <div class="pro-stats pro-stats-4">
+        <div><b class="mono" id="pm-roll">—</b><span>roll °</span></div>
+        <div><b class="mono" id="pm-pitch">—</b><span>pitch °</span></div>
+        <div><b class="mono" id="pm-tilt">—</b><span>tilt °</span></div>
+        <div><b class="mono" id="pm-gyro">—</b><span>rotation rad/s</span></div>
+      </div>
+      <p class="pro-hint">Already in use: pick-up detection, Madgwick sensor fusion, heading hold and turn-rate PID, tilting eyes.
+        New: knocks, bumps, shakes, tipping over and drops.</p>
+      <div class="pro-chips" id="pm-test">
+        <button type="button" class="btn-ghost" data-ev="knock">Knock</button>
+        <button type="button" class="btn-ghost" data-ev="double_knock">Double knock</button>
+        <button type="button" class="btn-ghost" data-ev="bump">Bump</button>
+        <button type="button" class="btn-ghost" data-ev="shake">Shake</button>
+        <button type="button" class="btn-ghost" data-ev="tipped">Tip over</button>
+        <button type="button" class="btn-ghost" data-ev="righted">Stand up</button>
+        <button type="button" class="btn-ghost" data-ev="drop">Drop</button>
+      </div>
+      <ul class="pro-events" id="pm-events"><li class="muted">Nothing yet.</li></ul>
+      <details class="pro-details">
+        <summary>Settings</summary>
+        <div class="pro-switches">
+          <label class="switch"><input type="checkbox" data-pro="motion.enabled"><span>On</span></label>
+          <label class="switch"><input type="checkbox" data-pro="motion.knock"><span>Knocks</span></label>
+          <label class="switch"><input type="checkbox" data-pro="motion.bump"><span>Bumps</span></label>
+          <label class="switch"><input type="checkbox" data-pro="motion.shake"><span>Shakes</span></label>
+          <label class="switch"><input type="checkbox" data-pro="motion.tip"><span>Tipping</span></label>
+          <label class="switch"><input type="checkbox" data-pro="motion.drop"><span>Drops</span></label>
+          <label class="switch"><input type="checkbox" data-pro="motion.speak"><span>Talk back</span></label>
+        </div>
+        <div class="pro-grid2">
+          <label>Knock (m/s²)<input type="number" class="pro-input" data-pro="motion.knock_ms2" min="1.5" max="20" step="0.5"></label>
+          <label>Bump (m/s²)<input type="number" class="pro-input" data-pro="motion.bump_ms2" min="2" max="30" step="0.5"></label>
+          <label>Shake (rad/s)<input type="number" class="pro-input" data-pro="motion.shake_rads" min="1" max="15" step="0.5"></label>
+          <label>Tipped over (°)<input type="number" class="pro-input" data-pro="motion.tip_deg" min="35" max="85" step="1"></label>
+        </div>
+      </details>
+    </section>
+
+    <section class="card co-card pro-card" id="pro-brain-card">
+      <header class="card-head">
+        <h2>AI brain</h2>
+        <span class="card-meta"><span class="tag" id="pb-now">—</span></span>
+      </header>
+      <ol class="pb-order" id="pb-order"></ol>
+      <p class="pro-hint" id="pb-why"></p>
+      <div class="pro-switches">
+        <label class="switch"><input type="checkbox" data-pro="groq.enabled"><span>Use Groq first</span></label>
+      </div>
+      <div class="pro-grid2">
+        <label>Groq model<input type="text" class="pro-input" data-pro="groq.model" list="pb-models" maxlength="80"></label>
+        <label>Thinking (gpt-oss)<select class="pro-input" data-pro="groq.reasoning_effort">
+          <option value="low">Low (fastest)</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+      </div>
+      <datalist id="pb-models">
+        <option value="openai/gpt-oss-120b"></option><option value="openai/gpt-oss-20b"></option>
+        <option value="llama-3.3-70b-versatile"></option><option value="llama-3.1-8b-instant"></option>
+      </datalist>
+      <p class="pro-hint">Order: Groq → Claude → local AI (Ollama) → offline rules. A question that needs the camera picture goes
+        to Claude, because Groq's models can't see images.</p>
+    </section>
+
+    <section class="card co-card pro-card pro-wide" id="pro-apis-card">
+      <header class="card-head">
+        <h2>APIs in use</h2>
+        <span class="card-meta mono" id="pa-updated">—</span>
+      </header>
+      <div class="pro-table-wrap">
+        <table class="pro-table">
+          <thead><tr><th>Service</th><th>Status</th><th>Details</th><th class="num">Calls</th><th>Last used</th></tr></thead>
+          <tbody id="pa-rows"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card co-card pro-card pro-wide" id="pro-accounts-card">
+      <header class="card-head">
+        <h2>Accounts</h2>
+        <span class="card-meta"><span class="tag">view only</span></span>
+      </header>
+      <h3 class="pro-sub">Linked accounts</h3>
+      <ul class="pro-list" id="pc-linked"><li class="muted">Loading…</li></ul>
+      <h3 class="pro-sub">API keys &amp; secrets</h3>
+      <div class="pro-table-wrap">
+        <table class="pro-table">
+          <thead><tr><th>Service</th><th>Used for</th><th>Key</th></tr></thead>
+          <tbody id="pc-keys"></tbody>
+        </table>
+      </div>
+      <p class="pro-hint" id="pc-how"></p>
+    </section>
+    <!-- ===== end pro ===== -->

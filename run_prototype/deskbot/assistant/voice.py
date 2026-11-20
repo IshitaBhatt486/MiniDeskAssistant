@@ -133,9 +133,54 @@ def apply_style(x: np.ndarray, rate: int, style: str, factor=1.6) -> np.ndarray:
     raise ValueError(f"unknown voice style {style!r}")
 
 
-def process(wav_bytes: bytes, factor=1.0, volume=1.0, style="chipmunk") -> bytes:
+def time_stretch(x: np.ndarray, rate: int, speed: float) -> np.ndarray:
+    """Change the duration by 1/speed WITHOUT changing the pitch (20 Nov 2026). WSOLA: 40 ms Hann frames are
+    overlap-added every 20 ms of output; each frame is taken from near its nominal input position (hop x speed),
+    shifted by up to +-10 ms to the spot that best continues the previous frame (cross-correlation), so the
+    waveform stays phase-continuous (no phasey/metallic sound). Gains are normalised by the window sum."""
+    if abs(speed - 1.0) < 0.01 or len(x) < 4:
+        return x
+    n = max(64, int(0.040 * rate)) & ~1
+    hop = n // 2
+    tol = int(0.010 * rate)
+    win = np.hanning(n).astype(np.float32)
+    n_out = int(len(x) / speed)
+    frames = max(1, (n_out - n) // hop + 2)
+    pad = np.concatenate([np.zeros(tol, np.float32), x.astype(np.float32),
+                          np.zeros(n * 2 + 2 * tol + int(hop * speed) + 1, np.float32)])
+    out = np.zeros(frames * hop + n, np.float32)
+    norm = np.zeros_like(out)
+    prev_tail = None
+    for k in range(frames):
+        nominal = min(int(k * hop * speed) + tol, len(pad) - n - hop - tol)
+        if prev_tail is None:
+            start = nominal
+        else:
+            seg = pad[nominal - tol: nominal + tol + hop]
+            corr = np.correlate(seg, prev_tail, mode="valid")
+            start = nominal - tol + int(np.argmax(corr))
+        out[k * hop:k * hop + n] += pad[start:start + n] * win
+        norm[k * hop:k * hop + n] += win
+        prev_tail = pad[start + hop:start + 2 * hop]      # what naturally follows this frame
+    norm[norm < 1e-3] = 1.0
+    return (out / norm)[:n_out].astype(np.float32)
+
+
+def pitch_shift(x: np.ndarray, rate: int, semitones: float) -> np.ndarray:
+    """Pitch up/down by `semitones`, same duration: resample (pitch and tempo x f), then stretch back by 1/f."""
+    if abs(semitones) < 0.05 or len(x) < 4:
+        return x
+    f = 2.0 ** (semitones / 12.0)
+    return time_stretch(resample(x, f), rate, 1.0 / f)
+
+
+def process(wav_bytes: bytes, factor=1.0, volume=1.0, style="chipmunk", pitch=0.0, speed=1.0) -> bytes:
+    """pitch (semitones) and speed (20 Nov 2026) are applied after the style. speed is only applied here when the
+    engine couldn't do it itself (Speaker passes 1.0 when it could)."""
     x, rate = read_wav(wav_bytes)
     x = apply_style(x, rate, style, factor)
+    x = pitch_shift(x, rate, pitch)
+    x = time_stretch(x, rate, speed)
     peak = float(np.max(np.abs(x))) if len(x) else 0.0
     if peak > 0:
         x = x * (0.95 / peak)        # normalise: espeak output is quiet
@@ -154,35 +199,55 @@ def _run(cmd, inp=None, timeout=30):
 class PiperTTS:
     name = "piper"
     gender = "auto"          # a Piper model has one fixed voice
+    speed = 1.0              # 20 Nov 2026: native speed (--length_scale) and voice_name (a model file's stem)
+    voice_name = ""
 
     def __init__(self):
         exe = shutil.which("piper")
         voices = sorted(PIPER_DIR.glob("*.onnx")) if PIPER_DIR.exists() else []
         if not exe or not voices:
             raise RuntimeError("piper or a voice in models/piper/ not found")
-        self.exe, self.voice = exe, voices[0]
+        self.exe, self.voice, self.models = exe, voices[0], voices
+
+    def voices(self):
+        return [{"id": p.stem, "label": p.stem.replace("_", " ")} for p in self.models]
 
     def synth(self, text):
+        model = next((p for p in self.models if p.stem == self.voice_name), self.voice)
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "s.wav"
-            _run([self.exe, "--model", str(self.voice), "--output_file", str(out)], inp=text.encode())
+            _run([self.exe, "--model", str(model), "--length_scale", f"{1.0 / max(0.5, self.speed):.3f}",
+                  "--output_file", str(out)], inp=text.encode())
             return out.read_bytes()
 
 
 class EspeakTTS:
     gender = "auto"
+    speed = 1.0              # 20 Nov 2026: -s words per minute = 160 x speed
+    voice_name = ""          # an English voice id from `espeak-ng --voices=en` (en-gb, en-us, en-gb-scotland, ...)
 
     def __init__(self, exe_name="espeak-ng"):
         self.exe = shutil.which(exe_name)
         if not self.exe:
             raise RuntimeError(f"{exe_name} not installed")
         self.name = exe_name
+        self._voices = None
+
+    def voices(self):
+        if self._voices is None:
+            try:
+                rows = _run([self.exe, "--voices=en"], timeout=10).stdout.decode(errors="replace").splitlines()[1:]
+                self._voices = [{"id": c[4], "label": c[3].replace("_", " ")} for c in (r.split() for r in rows) if len(c) >= 5]
+            except Exception:
+                self._voices = []
+        return self._voices
 
     def synth(self, text):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "s.wav"
-            variant = {"female": "en-us+f3", "male": "en-us+m3"}.get(self.gender, "en-us")
-            _run([self.exe, "-v", variant, "-s", "160", "-w", str(out), text])
+            base = self.voice_name or "en-us"
+            variant = {"female": base + "+f3", "male": base + "+m3"}.get(self.gender, base)
+            _run([self.exe, "-v", variant, "-s", str(int(160 * self.speed)), "-w", str(out), text])
             return out.read_bytes()
 
 
@@ -190,19 +255,39 @@ class SapiTTS:
     """Windows System.Speech via PowerShell (simulation on the laptop)."""
     name = "sapi"
     gender = "auto"
+    speed = 1.0              # 20 Nov 2026: $s.Rate (-10..10, about x1.1 per step)
+    voice_name = ""          # an installed voice's name, e.g. "Microsoft Zira Desktop"
 
     def __init__(self):
         if sys.platform != "win32" or not shutil.which("powershell"):
             raise RuntimeError("Windows only")
+        self._voices = None
+
+    def voices(self):
+        if self._voices is None:
+            script = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                      "$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name + '|' + $_.VoiceInfo.Gender }")
+            try:
+                r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, timeout=20)
+                rows = [ln.split("|") for ln in r.stdout.decode(errors="replace").splitlines() if "|" in ln]
+                self._voices = [{"id": n.strip(), "label": f"{n.strip().replace('Microsoft ', '').replace(' Desktop', '')} ({g.strip().lower()})"}
+                                for n, g in rows]
+            except Exception:
+                self._voices = []
+        return self._voices
 
     def synth(self, text):
+        import math
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "s.wav"
-            # the text goes through an environment variable, so nothing in it can break the script
+            # the text and the voice name go through environment variables, so nothing in them can break the script
             pick = {"female": "$s.SelectVoiceByHints('Female'); ", "male": "$s.SelectVoiceByHints('Male'); "}.get(self.gender, "")
+            if self.voice_name:
+                pick = "try { $s.SelectVoice($env:DESKBOT_TTS_VOICE) } catch { }; "
+            rate = max(-10, min(10, round(math.log(max(0.5, min(2.0, self.speed))) / math.log(1.1))))
             script = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-                      f"{pick}$s.SetOutputToWaveFile('{out}'); $s.Speak($env:DESKBOT_TTS_TEXT); $s.Dispose()")
-            env = dict(os.environ, DESKBOT_TTS_TEXT=text)
+                      f"{pick}$s.Rate = {rate}; $s.SetOutputToWaveFile('{out}'); $s.Speak($env:DESKBOT_TTS_TEXT); $s.Dispose()")
+            env = dict(os.environ, DESKBOT_TTS_TEXT=text, DESKBOT_TTS_VOICE=self.voice_name)
             r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                                capture_output=True, timeout=30, env=env)
             if r.returncode != 0 or not out.exists():
@@ -331,11 +416,23 @@ class Speaker:
         if self.tts is None:
             raise RuntimeError(self.error or "no TTS engine")
         self.tts.gender = self.settings.get("voice_gender", "auto")
+        speed = float(self.settings.get("voice_speed", 1.0))
+        native = hasattr(self.tts, "speed")          # the built-in engines set their own rate (cleaner than stretching)
+        if native:
+            self.tts.speed = speed
+        if hasattr(self.tts, "voice_name"):
+            self.tts.voice_name = self.settings.get("voice_name", "")
         raw = self.tts.synth(text)
         style = self.settings.get("voice_style", "chipmunk")
         if style == "chipmunk" and not self.settings.get("chipmunk", True):
             style = "natural"            # settings saved before voice styles existed
-        return process(raw, float(self.settings.get("chipmunk_factor", 1.6)), float(self.settings.get("volume", 0.9)), style)
+        return process(raw, float(self.settings.get("chipmunk_factor", 1.6)), float(self.settings.get("volume", 0.9)), style,
+                       pitch=float(self.settings.get("voice_pitch", 0.0)), speed=1.0 if native else speed)
+
+    def voices(self):
+        """The engine's installed voices [{"id", "label"}] (20 Nov 2026, pro/ voice studio); cached by the engine."""
+        fn = getattr(self.tts, "voices", None)
+        return fn() if fn else []
 
     def interrupt(self):
         while not self._q.empty():

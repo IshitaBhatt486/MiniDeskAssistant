@@ -9,7 +9,7 @@ assistant and a web dashboard. **`run_prototype/main.py`** runs all of it. The o
 run_prototype/   everything needed to run and test the robot; the only folder the Pi needs
 docs/            design notes and build documentation
 tests/           automated tests
-tools/           navigation demo, interactive shell, end-to-end test, test runners
+tools/           navigation demo, interactive shell, simulation test console, end-to-end test, test runners
 benchmarks/      open-source benchmark suite, its data and results
 digital_twin/    MATLAB digital twin (runs on a computer, not on the Pi)
 legacy/          earlier scripts, kept working
@@ -52,6 +52,10 @@ cd run_prototype
 python main.py                   # menu of everything
 python main.py start --sim       # try the whole robot on any computer
 python main.py start --lan       # on the Pi, reachable from your phone or laptop
+python main.py buddy --lan       # the same + task list, reminders, celebrations, phone notifications (19 Nov 2026)
+python main.py hub --lan         # buddy + ideas, focus mode, Google Calendar, Spotify, accounts, cost meter
+python main.py full --lan        # EVERY feature (wake word, routines, smart home, reader, guard, Telegram, ...)
+python main.py help              # every feature and voice command, in the terminal
 python main.py health            # test every sensor and part, then report the robot's health
 python main.py calibrate         # complete calibration (add --sim to try it)
 python main.py --help            # every command
@@ -110,6 +114,132 @@ Mount the IMU firmly with its X axis forward if you can; calibration corrects ti
 1.3" SH1106 screen, put `{"oled": {"driver": "sh1106"}}` in `data/companion.json`.
 
 Design details and every constant: [`docs/companion.md`](docs/companion.md).
+
+## Desk buddy: tasks, reminders, celebrations, phone notifications (`main.py buddy`, 19 Nov 2026)
+
+```bash
+python main.py buddy --sim       # anywhere          ·   on the Pi: bash scripts/buddy.sh
+```
+
+- **Tasks by voice.** "Remind me to submit the report by 5 tomorrow", "I finished the report", "what's on my list?".
+  The list is kept in `data/tasks.json`; deadlines get a heads-up (15 min before), a reminder when they're due
+  and one nudge an hour after a missed one. Each reminder plays a chime, changes the eyes and gives a small nudge.
+- **Celebrations.** Finishing a task plays a fanfare, shows the new `celebrating` eyes (confetti) and does one of four
+  victory moves; clearing the whole list adds a spin. The dashboard's Tasks card shows confetti too.
+- **Phone notifications.** The phone posts each notification to `POST /api/notify` (an Android automation app does it;
+  see the dashboard's "Connect your phone"). Rules, plus Claude for the unclear ones, decide what's important. Only
+  those are read aloud, and they're held while you're away or during quiet hours. Codes and passwords are never
+  read, never sent to the AI and never kept.
+- **Sound effects.** The AI's reply now has a `sound` field (`"none"` or one of 15 effects), played before the speech.
+
+Design, rules and every constant: [`docs/buddy.md`](docs/buddy.md).
+
+## Desk hub: ideas, focus mode, Google, Spotify, accounts, costs (`main.py hub`, 19 Nov 2026)
+
+```bash
+python main.py hub --sim         # anywhere          ·   on the Pi: bash scripts/hub.sh
+```
+
+- **"Remember this idea"** saves what you say next to an ideas notebook. "What were my ideas?" reads them back, and
+  the dashboard can search them and export them as Markdown.
+- **Focus mode** ("start focus mode", "focus for 50 minutes"). The robot watches whether you're looking at your work:
+  - It works out which way your face points from 5 face landmarks (OpenCV YuNet), and notices a phone in your hands.
+  - It nudges you after 20 s of looking away, or 10 s on the phone: a sound, a change in the eyes, a short line and a
+    wiggle.
+  - It holds your notifications until the break, and celebrates a session where you were focused 80 % of the time.
+  - Nothing is recorded or sent anywhere.
+- **Google Calendar reminders.** Tasks with deadlines become calendar events with a pop-up reminder on your phone.
+  "Put the dentist on my calendar tomorrow at 9" and "what's on my calendar?" also work.
+- **Spotify.** "Play Blinding Lights", "pause the music", "next song", "volume 40". Playback control needs Spotify
+  Premium.
+- **Connected accounts card.** It shows each account, what it can access, and when it was connected and last used.
+  - Connecting needs `ADMIN_PIN` and uses OAuth with PKCE and a one-time state.
+  - Tokens are encrypted on the robot when `ACCOUNTS_KEY` is set, and are never shown or sent anywhere.
+  - Disconnect revokes the token at Google.
+- **API costs card** with a daily Claude cap; see the next section.
+
+Setup, security model and every constant: [`docs/hub.md`](docs/hub.md).
+
+## The full robot: every feature, each switchable (`main.py full`, 19 Nov 2026)
+
+```bash
+python main.py full --sim        # anywhere      ·   on the Pi: bash scripts/full.sh      ·   python main.py help
+```
+
+Everything above, plus:
+
+| | say | notes |
+| --- | --- | --- |
+| **"Hey Pip" wake word** | "hey pip, what time is it?" | recognised on the robot (Vosk, or the local Whisper as a fallback); nothing is streamed |
+| **Voice routines** | "study time", "break time" | your own phrases that run steps: focus, music, lights, messages; one JSON file each in `data/routines/`, editable on the dashboard; can also run on events (arrive, leave, a time) |
+| **Morning / evening briefing** | "good morning", "how was my day?" | weather, calendar, deadlines; what you finished, focus time, water; automatic once a day |
+| **Rock, paper, scissors** | "let's play rock paper scissors" | your hand (fist / palm / peace sign) or your voice; best of three |
+| **Read this for me** | "read this for me", "summarise this" | camera, dashboard photo or Telegram photo; **local** vision model (Ollama) or Tesseract first; text saved in `data/reads/` |
+| **Hydration buddy** | "I drank some water" | sees you drinking, reminds you after 45 minutes without a drink |
+| **Owner recognition** | "learn my face" | greets you by name; only face numbers kept, on the robot |
+| **Guard mode** | "guard my desk" | asks visitors who they are, takes an announced photo, sends it to your Telegram |
+| **Telegram bot** | `/tasks`, `/add`, `/photo`, a photo of a page | private: paired to your chat with a one-time code |
+| **Smart home** | "turn on the desk lamp" | Home Assistant, Shelly, Tasmota on your Wi-Fi; no cloud |
+| **Local AI brain** | anything | Ollama on the Pi or your laptop when Claude is off: free and private |
+| **Feature switches** | — | the Features card turns any feature on or off; **Local only** turns off everything that needs the internet |
+
+Guard, faces, Telegram pairing and local-only need `ADMIN_PIN`. A visitor can't stop guard mode or enrol their face
+by voice. Design: [`docs/full.md`](docs/full.md). Running with no internet at all:
+[`docs/local-only.md`](docs/local-only.md).
+
+## The pro robot: your dashboard, headpats, Groq first (`main.py pro`, 20 Nov 2026)
+
+```bash
+python main.py pro --sim         # anywhere      ·   on the Pi: bash scripts/pro.sh
+```
+
+The full robot, plus:
+
+| | how | notes |
+| --- | --- | --- |
+| **Your own dashboard** | **＋ Add a card** dropdown, **×** on a card, drag the **⠿** handle | 14 cards shown by default, the other 37 one click away; **Customize** shows every handle; saved per browser; **Reset** |
+| **Light / dark mode** | Auto · Light · Dark, top right | Auto follows your system; a sleeker look (accent colour, softer cards, sticky toolbar) |
+| **Headpats** | touch the top, left or right pad | pat = giggle + "thank you", long pat = blush, 3 quick pats = celebration, left→top→right = a stroke; wakes a sleeping robot |
+| **More from the MPU-6050** | knock, bump, shake, tip it over, drop it | knock = "who's there?", double knock wakes it, bump while driving = stop + "oof", shake = dizzy, tipped = stop + asks for help |
+| **Voice studio** | sliders and dropdowns | pitch and speed (independent), loudness, voice type, the engine's own voices, gender, test button |
+| **Personality profiles** | dropdown, or say "switch to the pirate profile" | personality + voice together; 4 built in, save your own |
+| **Groq brain** | add `GROQ_API_KEY` | `openai/gpt-oss-120b` answers first; Claude takes over if Groq fails, and for questions that need the camera picture |
+| **APIs in use** | card | every service, whether it's active or a fallback right now, call counts |
+| **Accounts** | card (view only) | linked accounts and every key, masked (`gsk_…a91f`); keys are changed only in `secrets.env` |
+
+Touch pads: 3× TTP223 on GPIO 7 (top), 8 (left), 14 (right), powered from **3.3 V**. Test them with
+`python3 hardware_tests/test_touch.py`. Design, wiring, thresholds and the pin-saving options:
+[`docs/pro.md`](docs/pro.md).
+
+## What it costs to run (APIs)
+
+**Claude is the only paid API the robot uses.** Everything else it calls is free:
+
+- Groq speech-to-text (free tier), Open-Meteo, Wikipedia, the joke and exchange-rate APIs, the Google Calendar API
+  (with no billing account on the Google Cloud project) and the Spotify Web API.
+- The one paid fallback that existed, OpenAI speech-to-text, is now blocked unless you switch `allow_paid_apis` on.
+- The default speech-to-text is local, so it costs nothing.
+
+**The Claude API is not included in a Claude.ai Free, Pro or Max plan.** Those subscriptions cover the Claude apps
+(and Claude Code), not API calls. The robot uses an API key from [console.anthropic.com](https://console.anthropic.com),
+billed separately from prepaid credits. Set a monthly spend limit there.
+
+With the default model (Claude Haiku 5.5: $0.10 per million input tokens, $0.50 per million output tokens), a voice
+turn costs about $0.0002. 100 turns a day is roughly **$0.02–0.05 (₹2–4) a day**. The hub's API costs card shows the
+real numbers from each response's token counts, and switches the AI off for the rest of the day at a daily cap
+(default $0.50).
+
+## Test every feature in simulation from one terminal (`sim_console.py`, 20 Nov 2026)
+
+```bash
+python tools/sim_console.py --open                                  # starts the full robot in simulation + a prompt
+python tools/sim_console.py --script tools/sim_scenarios/smoke.txt  # one-command smoke test (exit 1 on a failure)
+```
+
+At the prompt, type to the robot (`turn left 90`), talk to it with the PC's synthetic voice (`:voice do a dance`) or
+your own microphone (`:mic 4`), run any `main.py` command (`:cli help guard`), and trigger the simulated robot's
+events (`:lift on`, `:phone on`, `:gesture Thumb_Up`, `:notify Mum: call me`, `:wake ...`). Voice works on the laptop
+without API keys through a new offline `windows` speech-to-text backend. Details: [`docs/sim-console.md`](docs/sim-console.md).
 
 ## Go from one obstacle to another (`navigate.py`, 18 Nov 2026)
 
@@ -313,6 +443,55 @@ Linux scheduling sets their priority:
 | 128×64 SSD1306 or SH1106 OLED (I2C) | Animated eyes |
 | Resistors for a voltage divider (e.g. 1 kΩ + 2 kΩ) | Drops the HC-SR04 5 V `ECHO` to 3.3 V for the Pi |
 
+### Bill of materials and approximate cost
+
+Estimates for November 2026, from typical prices at Indian robotics shops (Robu.in, Robocraze) and US ones (Adafruit,
+Amazon). Prices change, so check before buying. Excludes the laptop, tools (soldering iron, multimeter) and
+shipping.
+
+| # | Part | Qty | ≈ ₹ | ≈ US$ | Notes |
+| --- | --- | ---: | ---: | ---: | --- |
+| 1 | Raspberry Pi 4 Model B, 4 GB | 1 | 5,000–5,800 | 55–60 | 4 GB is the recommended minimum (see the RAM table above) |
+| 2 | Official 5.1 V 3 A USB-C supply | 1 | 700–900 | 8–10 | for desk use; see the battery rows for driving untethered |
+| 3 | microSD card, 32 GB, A1 | 1 | 350–500 | 6–9 | |
+| 4 | Heatsink + fan case for the Pi | 1 | 300–600 | 5–10 | the vision pipeline runs four cores hard |
+| 5 | Raspberry Pi Camera Module v2 (CSI) | 1 | 2,000–2,600 | 25 | a v1.3-style clone works for about ₹500 / $8 |
+| 6 | L298N dual H-bridge motor driver | 1 | 120–200 | 3–6 | |
+| 7 | DC geared motors with quadrature encoders (N20 / JGA25-370) | 2 | 700–1,400 | 10–25 | encoders on GPIO 5/6 and 20/16 |
+| 8 | Wheels (about 65 mm) + a front caster | 1 set | 150–300 | 4–8 | |
+| 9 | 2WD chassis plate + screws and standoffs | 1 | 250–500 | 8–15 | |
+| 10 | Motor battery: 2 × 18650 Li-ion + holder (7.4 V), or a 6 × AA pack | 1 | 600–1,000 | 10–18 | plus a charger if you have none |
+| 11 | Buck converter, 5 V 3 A (XL4015 / LM2596) | 1 | 100–200 | 3–5 | optional: runs the Pi from the battery |
+| 12 | HC-SR04 ultrasonic sensors | 4 | 240–360 | 8–12 | front, left, right, rear |
+| 13 | IR edge sensors (TCRT5000 module, digital out) | 2 | 80–120 | 3–4 | front and rear cliffs |
+| 14 | MPU-6050 IMU (GY-521) | 1 | 120–200 | 3–6 | |
+| 15 | 0.96" 128×64 SSD1306 OLED, I2C | 1 | 200–300 | 4–8 | the eyes |
+| 16 | USB sound card + electret microphone capsule | 1 | 180–330 | 5–8 | |
+| 17 | Small speaker (3 W) + PAM8403 amplifier, or a USB speaker | 1 | 100–250 | 4–8 | |
+| 18 | 1 kΩ + 2 kΩ resistors, jumper wires, breadboard | 1 lot | 250–450 | 6–10 | one divider per HC-SR04 |
+| | **Total** | | **≈ ₹11,500–16,000** (typically about ₹13,700) | **≈ $170–260** (typically about $205) | |
+
+Running costs: a few rupees a day of Claude API at most (see "What it costs to run" above), and under 10 W of
+electricity.
+
+### Alternatives worth considering
+
+| Instead of | Use | ≈ ₹ / US$ | Why it's better | Trade-off |
+| --- | --- | --- | --- | --- |
+| Raspberry Pi 4 | **Raspberry Pi 5 (4 or 8 GB)** | 6,500–8,500 / 60–80 | 2–3× faster CPU: YOLO and local speech-to-text run much faster; PCIe slot for an AI accelerator | needs the 27 W supply and active cooling |
+| CPU-only vision | **Raspberry Pi AI HAT+ (Hailo-8L, 13 TOPS)** on a Pi 5 | 7,000–8,000 / 70 | detection at 30+ fps and the CPU left free for mapping and speech | Pi 5 only; models must be compiled for Hailo |
+| Raspberry Pi | **NVIDIA Jetson Orin Nano Super** | 25,000–30,000 / 249 | CUDA GPU: far faster vision, local Whisper, even a small local LLM | several times the price and power; different OS setup |
+| L298N | **TB6612FNG** driver | 150–250 / 5 | MOSFET driver: about 0.5 V lost instead of 2–3 V, so more speed from the same battery, runs cool, tiny, 3.3 V logic | 1.2 A per channel (plenty for N20 / TT motors) |
+| HC-SR04 | **VL53L1X time-of-flight** sensors | 500–800 / 8–15 each | narrow beam, so fewer false echoes on a cluttered desk; I2C (no voltage divider); 4 m range; works on soft objects | each needs its own XSHUT pin or I2C address set at boot |
+| IR edge sensors | **VL6180X ToF** cliff sensors | 400–600 / 6–10 each | measures the distance to the desk surface, so it works on black, glossy or glass desks where IR reflection fails | I2C addressing again |
+| MPU-6050 | **BNO085 / BNO055** | 1,500–3,000 / 20–25 | sensor fusion on the chip plus a magnetometer: absolute heading with much less drift; the MPU-6050 is end-of-life | pricier; magnetometers dislike nearby motors |
+| Electret mic + USB card | **ReSpeaker 2-Mic HAT** or **INMP441 I2S mic** | 1,500–2,500 / 12–20 (HAT), 150–250 / 3–5 (INMP441) | digital audio with less hiss; the HAT adds beamforming, a far-field pickup and a speaker output | the HAT uses I2S pins and needs its driver |
+| PAM8403 + USB audio out | **MAX98357A I2S amplifier** | 250–400 / 6 | clean digital audio straight from the Pi, so no USB sound card is needed for output | one more I2S device to configure |
+| Camera Module v2 | **Camera Module 3 (or 3 Wide)** | 2,700–3,300 / 25–35 | autofocus and HDR: better face direction in focus mode and better detection in mixed light; the Wide sees more of the desk | slightly larger, more processing |
+| 0.96" mono OLED | **1.28" round GC9A01 colour LCD** | 400–900 / 6–12 | bigger, colour, more expressive eyes | SPI wiring; the eye drawing needs a colour version |
+| AA / bare 18650s | **2S Li-ion pack with a BMS + 5 V 3 A buck**, or a USB-C PD power bank | 1,000–1,800 / 15–25 | rechargeable, protected against over-discharge, steadier voltage, so the Pi doesn't brown out when motors start | a charger, and Li-ion care |
+| Wheel encoders alone | **+ PAA5100JE optical flow sensor** | 2,000–2,500 / 20 | measures real motion over the desk, so wheel slip doesn't corrupt the map | must sit 2–5 cm above the surface |
+
 ## Wiring (BCM numbering)
 
 | Device | Signal | GPIO (BCM) | Physical pin |
@@ -327,6 +506,7 @@ Linux scheduling sets their priority:
 | | ECHO (**via voltage divider**) | GPIO 25 | 22 |
 | Front IR sensor | OUT | GPIO 19 | 35 |
 | Rear IR sensor | OUT | GPIO 26 | 37 |
+| TTP223 touch pads (3.3 V) | top / left / right I/O | GPIO 7 / 8 / 14 | 26 / 24 / 8 |
 
 - Remove the ENA/ENB jumpers on the L298N so the Pi controls motor speed.
 - **All grounds must be common**: battery −, L298N GND and Pi GND.
@@ -489,7 +669,11 @@ Details and troubleshooting: [`docs/camera.md`](docs/camera.md).
 
 ```bash
 python3 hardware_tests/test_microphone.py        # live level meter, or record 5 s and play back
+python3 hardware_tests/test_oled.py              # 0.96" OLED on GPIO 7 (SCK) / 8 (SDA): text, then a live clock (setup in the file)
+bash hardware_tests/screen_test.sh "hi" "line 2" # same OLED wiring (GPIO 7 SCK / 8 SDA, software I2C bus 3): one standalone file, copy it anywhere
 ```
+
+`screen_test.sh` needs no other project files. The first time it runs, it adds the `i2c-gpio` overlay for bus 3 to `config.txt`, turns SPI off (GPIO 7/8 are the SPI chip-selects) and asks for a reboot. It also installs `luma.oled` in its own venv (`~/.venvs/oled-test`), and scans the bus. If the screen doesn't answer, it stops and prints a wiring checklist. Otherwise it draws a box and up to 5 lines of text. Settings: `OLED_DRIVER=sh1106` for 1.3" modules, `OLED_ADDR=0x3D`, `OLED_BUS=1` (the hardware I2C pins 3/5 instead).
 
 The Pi has no analog input, so the capsule can't go on GPIO. Details: [`docs/microphone.md`](docs/microphone.md).
 
@@ -558,7 +742,7 @@ run_prototype/
   models/, data/, outputs/   created while running (git-ignored)
 docs/                    design notes
 tests/                   automated tests
-tools/                   navigate.py, robot_shell.py, test_e2e.py, run_tests.sh, run_benchmarks.sh
+tools/                   navigate.py, robot_shell.py, sim_console.py (+ sim_scenarios/), test_e2e.py, run_tests.sh, run_benchmarks.sh
 benchmarks/              benchmarks.py, desk_bench/, requirements.txt, data/, results/
 digital_twin/            MATLAB digital twin
 legacy/                  3Nov-latest.py, 13Nov-multisonar.py, earlier dashboard servers
@@ -570,6 +754,12 @@ legacy/                  3Nov-latest.py, 13Nov-multisonar.py, earlier dashboard 
 | --- | --- |
 | [`docs/companion.md`](docs/companion.md) | `main.py`: IMU, PID control, pick-up handling, gestures, OLED eyes, calibration, saved outputs |
 | [`docs/navigation.md`](docs/navigation.md) | Obstacle-to-obstacle navigation: adaptive planner selection, safety-aware routes, replanning, search, home, no-go zones, confidence, limits |
+| [`docs/full.md`](docs/full.md) | `main.py full`: wake word, routines, smart home, reader, local AI, games, hydration, briefings, faces, guard, Telegram, feature switches |
+| [`docs/pro.md`](docs/pro.md) | `main.py pro`: configurable dashboard and themes, touch pads, MPU-6050 events, voice studio and profiles, Groq brain, accounts and APIs |
+| [`docs/sim-console.md`](docs/sim-console.md) | `tools/sim_console.py`: every feature from one terminal in simulation; the Windows speech-to-text backend |
+| [`docs/local-only.md`](docs/local-only.md) | running the robot with no internet, no cloud and no API costs (Ollama, Tesseract, local Whisper) |
+| [`docs/hub.md`](docs/hub.md) | `main.py hub`: ideas, focus mode, Google Calendar, Spotify, connected accounts and their security, API costs |
+| [`docs/buddy.md`](docs/buddy.md) | `main.py buddy`: spoken task list, deadlines, reminders, celebrations, phone notifications read aloud, sound effects |
 | [`docs/assistant.md`](docs/assistant.md) | Voice assistant: STT, Claude brain + tools, JSON commands, chipmunk voice, remote, spoken warnings, live mapping |
 | [`docs/presence.md`](docs/presence.md) | Bluetooth LE phone: wake/sleep, find my phone (RSSI scan), lift detection → new map |
 | [`docs/install-on-raspberry-pi.md`](docs/install-on-raspberry-pi.md) | Step-by-step install on a Raspberry Pi: card, copy, setup, calibration, start, updates, troubleshooting |
