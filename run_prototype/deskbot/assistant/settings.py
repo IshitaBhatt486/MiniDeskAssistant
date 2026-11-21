@@ -42,6 +42,7 @@ DEFAULTS = {
     "local_commands": True,          # plain robot commands ("turn left", "go to the cup") never reach the AI
     "sounds": True,                  # short musical motifs for robot states
     "speak": True,                   # say the reply on the speaker
+    "speaker_output": "laptop",      # 21 Nov 2026: laptop (browser plays it) | robot (Pi's speaker) | both
     "chipmunk": True,                # chipmunk voice effect
     "chipmunk_factor": 1.6,          # 1.0 = normal; 1.6 = classic chipmunk (pitch and tempo x1.6)
     "voice_style": "chipmunk",       # chipmunk | natural | deep | robot | radio | cave
@@ -151,6 +152,10 @@ def validate(changes: dict):
         elif key in ("send_image", "vision_on_demand", "local_commands", "sounds", "speak", "chipmunk", "speak_alerts",
                      "execute_commands", "allow_paid_apis"):
             value = bool(value)
+        elif key == "speaker_output":
+            from .laptop_speaker import OUTPUTS
+            if value not in OUTPUTS:
+                raise ValueError(f"speaker_output must be one of {', '.join(OUTPUTS)}")
         elif key == "chipmunk_factor":
             value = float(value)
             if not 1.0 <= value <= 2.5:

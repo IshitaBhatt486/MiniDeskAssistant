@@ -75,12 +75,18 @@ def fit_line(times, amounts):
 
 
 def level_matrix(mean_accel):
-    """Rotation that makes the measured gravity point along +z (scipy)."""
-    from scipy.spatial.transform import Rotation
-
+    """Rotation that makes the measured gravity point along +z: the shortest-arc rotation (Rodrigues), the same matrix
+    scipy's Rotation.align_vectors gave for one vector pair (numpy only since 20 Nov 2026)."""
     v = np.asarray(mean_accel, float)
-    rot, _ = Rotation.align_vectors(np.array([[0.0, 0.0, 1.0]]), np.array([v / np.linalg.norm(v)]))
-    return rot.as_matrix()
+    v = v / np.linalg.norm(v)
+    z = np.array([0.0, 0.0, 1.0])
+    axis, c = np.cross(v, z), float(np.dot(v, z))
+    s = float(np.linalg.norm(axis))
+    if s < 1e-12:                                     # already up, or exactly upside down: 180 deg about x
+        return np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
+    k = axis / s
+    kx = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    return np.eye(3) + s * kx + (1 - c) * (kx @ kx)
 
 
 class Calibration:

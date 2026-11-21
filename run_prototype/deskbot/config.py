@@ -51,7 +51,7 @@ class CameraConfig:
 
 @dataclass
 class VisionConfig:
-    model_name: str = "yolo26n"    # downloaded once from Ultralytics, then exported to NCNN locally
+    model_name: str = "yolo26n"    # downloaded once from Ultralytics, exported to NCNN by scripts/export-model.sh
     imgsz: int = 320               # 320 is ~4x fewer pixels than 640 -> ~3-4x faster on a Pi 4
     conf: float = 0.10             # detector threshold; ByteTrack (bytetrack.yaml) decides what becomes a track
     classes: list | None = None    # COCO class ids to keep (None = all 80)

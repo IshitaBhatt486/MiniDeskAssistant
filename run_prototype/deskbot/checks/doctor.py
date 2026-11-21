@@ -50,27 +50,17 @@ def run():
     add("Board", True if pi else None, pi or f"{platform.system()} {platform.machine()} (not a Pi: use --sim)",
         "fine for simulation; the robot itself needs the Pi")
     if pi and platform.machine() not in ("aarch64", "arm64"):
-        add("64-bit OS", False, platform.machine(), "Ultralytics/PyTorch need 64-bit Raspberry Pi OS (Bookworm)")
+        add("64-bit OS", False, platform.machine(), "the NCNN model export needs 64-bit Raspberry Pi OS (Bookworm)")
 
     for mod, fix in [
         ("numpy", "pip install numpy"),
         ("cv2", "pip install opencv-python-headless (or sudo apt install python3-opencv)"),
-        ("ultralytics", "pip install -r requirements-vision.txt"),
-        ("ncnn", "pip install ncnn"),
+        ("ncnn", "pip install -r requirements-vision.txt"),
         ("rich", "pip install rich"),
         ("questionary", "pip install questionary"),
     ]:
         good, detail = _import(mod)
         add(mod, good, detail, fix)
-
-    good, detail = _import("lap")
-    if good:
-        add("lap (ByteTrack matching)", True, detail)
-    else:
-        sp, _ = _import("scipy")
-        add("lap (ByteTrack matching)", None if sp else False,
-            f"{detail} -> using the scipy fallback" if sp else detail,
-            "pip install lap (or scipy for the fallback). 'blocked' = Windows Smart App Control")
 
     good, detail = _import("gpiozero")
     add("gpiozero", good if pi else (True if good else None), detail, "sudo apt install python3-gpiozero")
@@ -102,9 +92,12 @@ def run():
     if m:
         add("YOLO26n NCNN model", True, f"{m.relative_to(ROOT)} (imgsz {vcfg.imgsz})")
     else:
-        add("YOLO26n NCNN model", None if pt.exists() else False,
-            f"not exported{' (PyTorch .pt present: slower fallback)' if pt.exists() else ''}",
-            "python -m deskbot model export   (or scripts/export-model.sh)")
+        from ..vision.model import have_ultralytics
+
+        slow = pt.exists() and have_ultralytics()
+        add("YOLO26n NCNN model", None if slow else False,
+            f"not exported{' (PyTorch .pt + Ultralytics present: slower fallback)' if slow else ''}",
+            "bash scripts/export-model.sh   (once; PyTorch only lives in a temporary venv)")
 
     # multi-process runtime: 4 cores, real-time permission for the motor + sensor processes
     import os

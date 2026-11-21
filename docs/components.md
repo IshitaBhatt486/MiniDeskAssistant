@@ -10,8 +10,8 @@
 | Breadboard                          | Optional                      |
 | HC-SR04 ultrasonic sensor           | Front obstacle detection      |
 | 3 more HC-SR04 (optional)           | Left, right, rear obstacle detection (`13Nov-multisonar.py`) |
-| Raspberry Pi camera module (CSI ribbon) | Vision (`test_camera.py` to check it) |
-| Electret microphone capsule (2 wires) | Audio input; needs a USB sound card with a mic jack (`test_microphone.py`) |
+| Raspberry Pi camera module (CSI ribbon) | Vision (`hardware_test.py camera` to check it) |
+| Electret microphone capsule (2 wires) | Audio input; needs a USB sound card with a mic jack (`hardware_test.py mic`) |
 | USB sound card (mic jack)           | Powers and digitises the electret mic |
 | 2 IR edge sensors (digital output)  | Front + rear desk-edge detection |
 | 1 kΩ + 2 kΩ resistors               | Voltage divider for each HC-SR04 ECHO (5 V → 3.3 V), one pair per sensor |

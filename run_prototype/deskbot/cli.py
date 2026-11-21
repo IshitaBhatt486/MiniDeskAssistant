@@ -108,8 +108,8 @@ def cmd_model(action):
         except Exception as exc:
             ui.fail(f"Export failed: {exc}")
             if "Application Control" in str(exc):
-                ui.warn("Windows Smart App Control blocked the PNNX converter. Export on the Pi instead; "
-                        "on this PC the app falls back to the PyTorch weights.")
+                ui.warn("Windows Smart App Control blocked the PNNX converter. Export on the Pi instead "
+                        "(bash scripts/export-model.sh); on this PC the app falls back to the PyTorch weights.")
             return 1
         return 0
     if action == "bench":
@@ -123,8 +123,9 @@ def cmd_model(action):
     m = model.find_model(cfg.vision)
     ui.table("Model", ["Item", "Value"], [
         ("Model", cfg.vision.model_name), ("Input size", cfg.vision.imgsz),
-        ("NCNN export", m or "not exported yet (python -m deskbot model export)"),
-        ("Tracker", "ByteTrack (deskbot/vision/bytetrack.yaml)"), ("Threads", cfg.vision.threads),
+        ("NCNN export", m or "not exported yet (bash scripts/export-model.sh)"),
+        ("Runtime", "ncnn + numpy (deskbot/vision/ncnn_detector.py), no PyTorch"),
+        ("Tracker", "ByteTrack in numpy (deskbot/vision/bytetrack.py + bytetrack.yaml)"), ("Threads", cfg.vision.threads),
         ("Cost", "free - runs entirely on the device"),
     ])
     return 0

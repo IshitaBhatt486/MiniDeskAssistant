@@ -39,11 +39,11 @@ def _pct(v, q):
 
 
 def _detector(cfg, threads, log):
-    from deskbot.vision.detector import YoloDetector
+    from deskbot.vision.detector import make_detector
     from deskbot.vision.model import resolve_model
 
     vcfg = dataclasses.replace(cfg.vision, threads=threads)
-    return YoloDetector(vcfg, resolve_model(vcfg, log))
+    return make_detector(vcfg, resolve_model(vcfg, log))
 
 
 def _robot_view(img, width):

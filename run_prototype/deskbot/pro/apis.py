@@ -121,7 +121,7 @@ class ApiInventory:
                          "count": u.get("count", 0), "last": u.get("last")})
         stt = _safe(a.stt.status, {}) or {}
         for i, name in enumerate(stt.get("available") or []):
-            title = {"local": "faster-whisper (on the robot)", "groq": "Groq Whisper", "openai": "OpenAI Whisper",
+            title = {"local": "Whisper / whisper.cpp (on the robot)", "groq": "Groq Whisper", "openai": "OpenAI Whisper",
                      "windows": "Windows speech (laptop)"}.get(name, name)
             last = stt.get("last") or {}
             rows.append({"group": "Speech to text", "name": title, "state": "active" if i == 0 else "fallback",
@@ -129,7 +129,7 @@ class ApiInventory:
                          "count": None, "last": None})
         if not stt.get("available"):
             rows.append({"group": "Speech to text", "name": "none available", "state": "off",
-                         "detail": "add GROQ_API_KEY or install faster-whisper", "count": None, "last": None})
+                         "detail": "add GROQ_API_KEY or install pywhispercpp", "count": None, "last": None})
         sp = _safe(a.speaker.status, {}) or {}
         rows.append({"group": "Voice", "name": f"{sp.get('engine') or 'no'} text-to-speech", "state": "active" if sp.get("engine") else "off",
                      "detail": " · ".join(x for x in (a.settings.get("voice_name") or "default voice", sp.get("player")) if x),

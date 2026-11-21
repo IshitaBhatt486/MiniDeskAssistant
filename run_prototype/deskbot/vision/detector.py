@@ -1,7 +1,12 @@
 """
 Object detection + tracking.
 
-YoloDetector  YOLO26n exported to NCNN, run through Ultralytics with ByteTrack (persist=True keeps
+make_detector picks the detector for a model path:
+  NCNN export folder  -> ncnn_detector.NcnnDetector (20 Nov 2026): ncnn + numpy + our own ByteTrack,
+                         no PyTorch / Ultralytics. What the robot runs.
+  .pt weights         -> YoloDetector below, through Ultralytics (only where Ultralytics is installed,
+                         e.g. a Windows laptop where Smart App Control blocks the NCNN DLL).
+YoloDetector  the original detector (unchanged): YOLO26n through Ultralytics with ByteTrack (persist=True keeps
               the tracker state between calls, so track IDs stay stable from frame to frame).
               Runs fully on the device: no cloud, no API keys, no per-call cost.
 SimDetector   turns SimCamera's ground-truth boxes into detections (with noise and missed
@@ -30,6 +35,16 @@ class Detection:
     def as_dict(self):
         return {"label": self.label, "score": round(self.score, 3),
                 "box": [round(v, 1) for v in self.box], "track_id": self.track_id}
+
+
+def make_detector(vcfg: VisionConfig, model_path):
+    """NcnnDetector for an NCNN export, YoloDetector (Ultralytics) for .pt weights. Both have the same interface."""
+    p = Path(model_path)
+    if p.is_dir() or p.suffix == ".param":
+        from .ncnn_detector import NcnnDetector
+
+        return NcnnDetector(vcfg, p)
+    return YoloDetector(vcfg, p)
 
 
 class YoloDetector:

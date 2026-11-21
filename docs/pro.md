@@ -4,7 +4,7 @@
 cd run_prototype
 python main.py pro --sim         # any computer      ·   on the Pi: bash scripts/pro.sh
 python ../tools/sim_console.py --mode pro --script ../tools/sim_scenarios/pro.txt     # end-to-end check
-python3 hardware_tests/test_touch.py                                                  # the touch pads, on the Pi
+python3 hardware_tests/hardware_test.py touch                                                  # the touch pads, on the Pi
 ```
 
 `main.py pro` is a **new runtime** on top of the full robot ([full.md](full.md)), which still runs as before. It adds:
@@ -30,7 +30,7 @@ The speaker (red/black wires) isn't configured yet: that was postponed. See [Spe
 | `deskbot/pro/config.py` | `data/pro.json` settings |
 | `web/static/layout.js` | layout manager + theme switch |
 | `web/static/pro_cards.html`, `pro.js`, `pro.css` | the 6 new cards and the sleeker skin |
-| `hardware_tests/test_touch.py` | standalone pad test |
+| `hardware_tests/hardware_test.py touch` | standalone pad test |
 | `scripts/pro.sh` | start on the Pi |
 | `tests/test_pro.py` | 51 tests |
 
@@ -275,7 +275,7 @@ only change is that variable.
   pointer drag moves a card to the right place and Escape cancels; dark/auto theme; edit mode; reset.
 - **Screenshots**: light and dark, every default card readable.
 - **Not verified here**:
-  - real TTP223 pads and real knocks / bumps on the MPU-6050 (the Pi): start with `hardware_tests/test_touch.py`,
+  - real TTP223 pads and real knocks / bumps on the MPU-6050 (the Pi): start with `hardware_tests/hardware_test.py touch`,
     then tune the motion thresholds
   - a real Groq call (no key on the laptop): the request format follows Groq's OpenAI-compatible API and is checked
     with a fake client

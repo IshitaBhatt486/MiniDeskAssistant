@@ -1,31 +1,59 @@
 # Putting it on the Pi: deploy, clean-up, hotspot, start on boot (17 Nov 2026)
 
-## 1. Copy the project from the laptop (`scripts/deploy.sh`)
+## 1. Copy the project from the laptop (`tools/deploy.sh`)
 
 Runs in **Git Bash** on Windows (or any Linux/macOS shell). It needs only `ssh` and `tar`, which Git for Windows has
 (no rsync).
 
 ```bash
 ssh-copy-id pi@deskbot.local                      # once: log in with a key instead of a password
-cp secrets.env.example secrets.env                # once: add your API keys (copied to the Pi, mode 600)
+cp run_prototype/secrets.env.example run_prototype/secrets.env   # once: add your API keys (copied to the Pi, mode 600)
 
-bash scripts/deploy.sh pi@deskbot.local --wipe-home --install --service   # first time: clean Pi → running robot
-bash scripts/deploy.sh pi@deskbot.local                                   # later: just update the code
+bash tools/deploy.sh pi@deskbot.local --wipe-home --install --service   # first time: clean Pi → running robot
+bash tools/deploy.sh pi@deskbot.local                                   # later: just update the code
 ```
 
 | Option | Effect on the Pi |
 | --- | --- |
-| *(none)* | replaces the code in `~/deskbot` but **keeps** `.venv`, `models/` (NCNN export), `data/` (settings, certificate), `secrets.env`: fast updates |
+| *(none)* | **only what changed** (21 Nov 2026): sends new/changed files, deletes files you removed on the laptop, installs only **missing** Python packages. Never touches `.venv`, `models/` (NCNN export), `data/` (settings, calibration, certificate), `outputs/`, `secrets.env` |
+| `--full` | the old behaviour: deletes all the code in `~/deskbot` (keeping `.venv`, `models/`, `data/`, `secrets.env`) and sends everything |
 | `--clean` | deletes `~/deskbot` completely first |
 | `--wipe-home` | **"clean up all files on the Pi"**: lists every normal file/folder in the Pi user's home, asks you to type `WIPE`, deletes them. **Hidden files are kept** (`.ssh`, `.bashrc`, `.config`); deleting `.ssh` would lock you out. System files outside the home aren't touched |
+| `--no-packages` | skip the missing-package check |
 | `--install` | runs `scripts/setup.sh` on the Pi (apt packages, venv, Python packages, model export; asks for sudo) |
 | `--service` | installs + starts the systemd service (§3) |
 | `--dir NAME` | another folder name in the home directory |
 
-What's sent: a 2.4 MB tar.gz of the repo **without** `.venv`, `.git`, `__pycache__`, `models/`, benchmark data,
-`data/` and `secrets.env` (which goes separately over ssh with `umask 077`). It uses 3–5 ssh connections in total.
-The service is stopped before the copy. The tar is written with `tar czf - … > file`, because GNU tar would read a
-Windows path like `C:/…` as a remote host name.
+### How the incremental update works (21 Nov 2026)
+
+1. **Compare.** The same `find … | xargs sha256sum` runs on the laptop and (over ssh) in `~/deskbot` on the Pi. Both
+   leave out `.venv`, `.git`, `__pycache__`/`*.pyc`, `models/`, `data/`, `outputs/`, benchmark data and `secrets.env`,
+   so deploy never sends, compares or deletes any of those. `awk` compares the two lists by path. A file goes in the
+   **send** list when it's new or its SHA-256 differs, and in the **delete** list when it's on the Pi but no longer on
+   the laptop. sha256sum prints `hash  path` on Linux and `hash *path` in Git Bash, so the path is read from column 67
+   in both. The remote list is matched by file name (`FILENAME == ARGV[1]`), not `NR == FNR`: with that trick, an empty
+   list from a fresh Pi would have read the laptop list as the remote one and marked everything for deletion.
+2. **Update.** If either list isn't empty, the service is stopped. The deleted files are removed, along with folders
+   left empty (`rmdir -p --ignore-fail-on-non-empty`). Then a tar.gz of **only the changed files** (`tar -T list`) is
+   unpacked. If nothing changed, nothing is sent and the service keeps running. Up to 20 paths per list are printed
+   (`+ ./main.py`, `- ./old.py`).
+3. **secrets.env** is sent only when its hash differs from the Pi's copy (still `umask 077`).
+4. **Packages.** `scripts/missing_packages.py` runs in the Pi's `.venv`. For every line of every `requirements*.txt` it
+   checks the installed version with `importlib.metadata` and `packaging` (the copy inside pip, so it works in a bare
+   venv). It skips lines whose environment marker doesn't apply and prints the unsatisfied lines. pip installs **only
+   those** (`TMPDIR=~/.cache/pip-tmp`, because `/tmp` on the Pi is a small RAM disk). If the install fails, the deploy
+   still finishes and says so. With no `.venv` yet, it says to run `--install` once. Skipped with `--install`, because
+   `setup.sh` installs everything anyway.
+
+Limits: it checks every requirements file, so a Pi set up with `setup.sh --no-vision` / `--no-assistant` gets those
+packages on the next deploy (use `--no-packages` to avoid that). apt packages, MediaPipe (installed `--no-deps` by
+`setup.sh`) and the NCNN model aren't checked: use `--install` for those. Stale `__pycache__` folders aren't deleted
+(Python ignores a `.pyc` whose source file is gone). The ssh calls are: connection check, file list, update (only if
+needed), tar (only if needed), secrets check, packages. `--full` and `--clean` clear the folder first, so everything is
+sent.
+
+The tar is written with `tar czf - … > file`, because GNU tar would read a Windows path like `C:/…` as a remote host
+name.
 
 **By hand** (without the script):
 ```bash
@@ -86,3 +114,14 @@ While the service runs, the GPIO pins are busy, so stop it before `scripts/start
 3. `bluetoothctl show` → `Powered: yes`.
 4. Start the assistant, open the dashboard, check the tags (brain / speech / voice) and the **Warnings** card. Every
    problem is listed there with the reason.
+
+## Where `deploy.sh` lives (20 Nov 2026)
+
+`deploy.sh` moved from `run_prototype/scripts/` to `tools/`: it only runs on the laptop, and `run_prototype/` holds only
+what the Pi needs. It sets `SELF` to its own absolute path and `ROOT` to `../run_prototype`, then `cd`s there.
+So it packs the same folder as before, and `secrets.env` is still read from `run_prototype/secrets.env`. `--help` reads
+`$SELF`, not the relative `$0`. Before, `--help` failed after the `cd` when the script was started by a relative path.
+`python main.py deploy` still works from the full repository: the robot CLI's `SH_TOOLS` paths are now relative to
+`run_prototype/` (`../tools/deploy.sh`), and on a Pi without `tools/` it says the tool is only in the full repository.
+At the same time `run_prototype/README.md` became [run-prototype.md](run-prototype.md), and `scripts/oled.sh` was removed
+(the same thing as `hardware_tests/hardware_test.py oled --text ...`, see [hardware-test.md](hardware-test.md)).

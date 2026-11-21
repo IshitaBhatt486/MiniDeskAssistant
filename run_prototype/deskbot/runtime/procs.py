@@ -391,9 +391,9 @@ def camera_main(shared, cfg, camera, sim):
             from ..vision.detector import SimDetector
             detector = SimDetector()
         else:
-            from ..vision.detector import YoloDetector
+            from ..vision.detector import make_detector
             from ..vision.model import resolve_model
-            detector = YoloDetector(vcfg, resolve_model(vcfg, lambda m: _log(shared, "info", m, proc="camera")))
+            detector = make_detector(vcfg, resolve_model(vcfg, lambda m: _log(shared, "info", m, proc="camera")))
         from ..vision.camera import FrameGrabber, open_camera
         from ..vision.flow import FlowTracker
 

@@ -2,9 +2,9 @@
 2. connect the components # pins.md
 3. test the pi + motors + sensors with `3Nov-latest.py` # pi.md (done: working)
 4. web dashboard (`dashboard/server.py`) and occupancy mapping (`dashboard/server_mapping.py`) # mapping.md (done in sim, calibrate odometry on the robot)
-5a. test the camera: `python3 hardware_tests/test_camera.py` # camera.md
-5b. test the microphone (via USB sound card): `python3 hardware_tests/test_microphone.py` # microphone.md
-5. test each sensor on its own: `python3 hardware_tests/test_sensors.py` (pick a sensor, watch its readings) # sensor-tests.md
+5a. test the camera: `python3 hardware_tests/hardware_test.py camera` # camera.md
+5b. test the microphone (via USB sound card): `python3 hardware_tests/hardware_test.py mic` # microphone.md
+5. test each sensor on its own: `python3 hardware_tests/hardware_test.py sensors` (pick a sensor, watch its readings) # sensor-tests.md
 6. three extra ultrasonic sensors: left/right/rear (`13Nov-multisonar.py`) # multisonar.md (done in sim, wire + test on the robot)
 7. chasis # chasis.md
 8. encoders #encoders.md

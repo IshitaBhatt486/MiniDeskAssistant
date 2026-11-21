@@ -152,14 +152,14 @@ def build_vision(camera, sim, hw, cfg: AppConfig, log=print, allow_fallback=True
     from ..vision.pipeline import VisionPipeline
 
     # Detector FIRST, camera second: the camera only starts streaming once the model is ready, and
-    # on Windows importing torch while an OpenCV (Media Foundation) camera is open can deadlock.
+    # on Windows importing torch (the .pt fallback) while an OpenCV (Media Foundation) camera is open can deadlock.
     if camera == "sim":
         from ..vision.detector import SimDetector
         detector = SimDetector()
     else:
-        from ..vision.detector import YoloDetector
+        from ..vision.detector import make_detector
         from ..vision.model import resolve_model
-        detector = YoloDetector(cfg.vision, resolve_model(cfg.vision, log, allow_fallback))
+        detector = make_detector(cfg.vision, resolve_model(cfg.vision, log, allow_fallback))
     source = open_camera(camera, cfg.camera, hw if sim else None)
     grabber = FrameGrabber(source).start()
     return VisionPipeline(grabber, detector, cfg.camera, cfg.vision).start()

@@ -19,7 +19,6 @@ import random
 from collections import deque
 
 import numpy as np
-from ahrs.filters import Madgwick
 
 from .config import CALIBRATION_FILE, SIM_CALIBRATION_FILE
 
@@ -115,6 +114,8 @@ def wrap(a):
 
 class ImuFilter:
     def __init__(self, cfg, cal=None, sim=False):
+        from ahrs.filters import Madgwick   # imported here so a missing ahrs only breaks the IMU, not the menu
+
         self.cfg = cfg
         self.madgwick = Madgwick(frequency=cfg.hz, gain=cfg.madgwick_gain)
         self.q = np.array([1.0, 0.0, 0.0, 0.0])

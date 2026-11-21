@@ -42,7 +42,7 @@ ssh-copy-id pi@deskbot.local
 Run this from the top of the repository, on the laptop:
 
 ```bash
-bash run_prototype/scripts/deploy.sh pi@deskbot.local --install
+bash tools/deploy.sh pi@deskbot.local --install
 ```
 
 It copies the code to `~/deskbot`, installs the system and Python packages, turns on I2C and prepares the vision model. The first install
@@ -120,7 +120,7 @@ To stop it for now: `sudo systemctl stop deskbot`. To read its log: `journalctl 
 From the top of the repository on the laptop:
 
 ```bash
-bash run_prototype/scripts/deploy.sh pi@deskbot.local
+bash tools/deploy.sh pi@deskbot.local
 ```
 
 This keeps the Pi's `.venv`, `models`, `data` and `secrets.env`. It removes everything else in `~/deskbot`, including saved `outputs`, so copy
@@ -150,10 +150,10 @@ bash scripts/setup.sh
 | `$'\r': command not found` | The script has Windows line endings. Use `deploy.sh`, or run `sed -i 's/\r$//' scripts/*.sh` on the Pi |
 | OLED or MPU-6050 not found | Run `i2cdetect -y 1`. Expect `3c` for the OLED and usually `68` for the MPU-6050. Check 3.3 V, GND, SDA and SCL |
 | A 1.3 inch OLED looks wrong | It may be an SH1106: put `{"oled": {"driver": "sh1106"}}` in `data/companion.json` |
-| Vision model export failed | Run `.venv/bin/python main.py model export`. The robot falls back to the slower PyTorch model |
+| Vision model export failed | Run `bash scripts/export-model.sh` (needs internet and ~1.5 GB free for a few minutes). Until it works the robot runs without object detection ("Vision disabled" in the log) |
 | Encoder counts don't change | Check the wiring on GPIO5/6 and GPIO20/16, and that outputs are at 3.3 V |
 | The robot is slow or restarts | Check `free -h` and `vcgencmd measure_temp`, the power supply, and try turning gestures off |
-| Voice input doesn't work | Run `.venv/bin/python main.py doctor`, and check that `faster-whisper` installed. You can still type on the dashboard |
+| Voice input doesn't work | Run `.venv/bin/python main.py doctor`, and check that `pywhispercpp` (whisper.cpp) installed. You can still type on the dashboard |
 | The robot drives the wrong way | Stop it and correct the motor wiring or pin settings in `robot_config.py` before continuing |
 
 More detail: [`deploy.md`](deploy.md), [`pi.md`](pi.md), [`encoders.md`](encoders.md) and [`companion.md`](companion.md).

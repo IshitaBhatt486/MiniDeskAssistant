@@ -83,7 +83,7 @@ and local-only mode.
   1. **Vosk** in grammar mode. The recogniser may only output `["hey pip", "pip", "[unk]"]`, which makes it tiny
      and fast and needs no training. The model (`vosk-model-small-en-us-0.15`, 40 MB) downloads on first use. If
      the robot's name isn't in Vosk's vocabulary, the card says so.
-  2. **Whisper** as a fallback. Speech bursts of up to 2.5 s go to the local faster-whisper. "Hey Pip, what time
+  2. **Whisper** as a fallback. Speech bursts of up to 2.5 s go to the local Whisper (whisper.cpp). "Hey Pip, what time
      is it" in one breath works, because the words after the name become the request.
 - **Audio:** `arecord` (the robot's mic; `DESKBOT_MIC_DEVICE` overrides it) or `sounddevice`, 16 kHz, in 30 ms frames.
 - **After the wake word:** the `recognition` motif plays and the eyes turn curious. The request is then recorded:

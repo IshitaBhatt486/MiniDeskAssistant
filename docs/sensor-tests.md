@@ -1,16 +1,16 @@
-# Sensor test scripts (updated 13 Nov 2026)
+# Sensor test (updated 20 Nov 2026)
 
-Two interactive scripts in the repo root. Neither touches the motors. Both work the same way:
+Since 20 Nov 2026 the sensor test is the `sensors` part of `hardware_tests/hardware_test.py`, the single file with
+every hardware test ([hardware-test.md](hardware-test.md)). It replaces `test_sensors.py` and `test_ultrasonic.py`,
+which did the same thing with different pin sources. It doesn't touch the motors:
 **choose a sensor from the menu → its readings print continuously → press Enter to stop → back to the menu.**
 
-| Script | Sensors | Pins from | Copy to the Pi |
-| --- | --- | --- | --- |
-| `test_ultrasonic.py` | 4 ultrasonic | its own `SONARS` table (**standalone**) | just this file (needs only gpiozero) |
-| `test_sensors.py` | 4 ultrasonic + 2 IR | `robot_config.py` | with `robot_config.py` |
+| Sensors | Pins from | Copy to the Pi |
+| --- | --- | --- |
+| 4 ultrasonic + 2 IR | `robot_config.py` if it is one folder up, else the file's own `FALLBACK_PINS` | just this file is enough (needs only gpiozero) |
 
 ```bash
-python3 hardware_tests/test_ultrasonic.py
-python3 hardware_tests/test_sensors.py
+python3 hardware_tests/hardware_test.py sensors     # or pick "sensors" from the menu
 ```
 
 Example session:
@@ -21,7 +21,7 @@ Which sensor?
   ...
   5. front IR          OUT GPIO 19 (pin 35)
   6. rear IR           OUT GPIO 26 (pin 37)
-  q. quit
+  b. back
 > 5
 
 front IR: OUT GPIO 19 (pin 35)
@@ -34,7 +34,7 @@ Stopped.
 
 ## Behaviour
 
-- **Menu:** choose by number. `test_ultrasonic.py` also accepts the name (`left`). `q`, `quit` or `0` exits, as do
+- **Menu:** choose by number, or by name (`left`, `front IR`). `b`, `q`, `quit` or `0` goes back, as do
   `Ctrl+C` and `Ctrl+D` at the menu. Invalid input reprints the menu.
 - **Only the selected sensor is opened**, and it's closed again when you stop. So you're always looking at that
   sensor alone: no crosstalk from the other ultrasonics, and a faulty neighbour can't affect it.
@@ -44,7 +44,7 @@ Stopped.
 - **Stop:** press **Enter**. A background thread waits on `input()` and sets a `threading.Event`, and the read loop
   waits on that event between readings, so it stops within one interval. `Ctrl+C` while streaming also
   stops and returns to the menu.
-- **Errors:** in `test_sensors.py`, if a sensor can't be opened (for example, its pin is busy because the dashboard
+- **Errors:** if a sensor can't be opened (for example, its pin is busy because the dashboard
   or `13Nov-multisonar.py` is running), the error is printed and you're back at the menu.
 
 ## What to look for
@@ -63,7 +63,9 @@ The IR output must not exceed 3.3 V. If the modules are powered from 5 V, measur
 
 - `test_ultrasonic.py` used to show all sensors at once and print a min/avg/max summary. `test_sensors.py` used to be a
   guided pass/fail run through all six. Both are now the same "pick one, watch it live" tool, as requested.
-- `test_ultrasonic.py` remains standalone. **If you rewire the ultrasonics, update its `SONARS` table and `robot_config.py`.**
+- 20 Nov 2026: both merged into `hardware_test.py sensors`. It reads `robot_config.py` when present and falls back to its
+  own `FALLBACK_PINS` when copied alone. **If you rewire, update `robot_config.py` and `FALLBACK_PINS`**;
+  `tests/test_hardware_test.py` fails if they differ.
 
 ## Verified
 
@@ -79,9 +81,8 @@ Both scripts were run as real processes against a fake `gpiozero` module with ti
 
 ## Camera option (15 Nov 2026)
 
-`test_sensors.py` has a 7th entry, **camera**: it shows the live Pi camera image in the terminal (the renderer from
-`test_camera.py`) until you press Enter, then returns to the menu. If no camera is found, the checklist from
-`test_camera.py` is printed and you stay in the menu.
+The old `test_sensors.py` had a 7th entry, **camera**. In `hardware_test.py` the camera is its own test in the main
+menu (`camera`), with the same renderer and the same "no camera" checklist.
 
 The new `scripts/sensors.sh` (deskbot) has the same tests plus **all sensors at once** (a live table) and
 **camera + object detection** (YOLO26n + ByteTrack, boxes drawn in the terminal, fps / latency / tracked labels on a status

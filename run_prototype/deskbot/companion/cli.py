@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from .. import ROOT, cli as base, ui
+from .. import ROOT, cli as base, recovery, ui
 from .animations import ANIMATIONS, EMOTIONS
 from .config import OUTPUTS_DIR, load_config
 
@@ -37,10 +37,13 @@ PY_TOOLS = {
     "benchmarks": ("../benchmarks/benchmarks.py", "open-source benchmarks: planners, odometry, tracking, detection, speech"),
     "calibrate-encoders": ("calibrate_encoders.py", "measure the wheel encoders (on the Pi)"),
     "e2e": ("../tools/test_e2e.py", "run every feature end to end"),
-    "test-sensors": ("hardware_tests/test_sensors.py", "stream any sensor"),
-    "test-ultrasonic": ("hardware_tests/test_ultrasonic.py", "stream one ultrasonic sensor"),
-    "test-camera": ("hardware_tests/test_camera.py", "camera in the terminal"),
-    "test-mic": ("hardware_tests/test_microphone.py", "microphone level and recording"),
+    "test-hardware": ("hardware_tests/hardware_test.py", "menu of every hardware test"),
+    "test-sensors": ("hardware_tests/hardware_test.py", "stream any ultrasonic / IR sensor"),
+    "test-ultrasonic": ("hardware_tests/hardware_test.py", "stream any ultrasonic / IR sensor"),
+    "test-camera": ("hardware_tests/hardware_test.py", "camera in the terminal"),
+    "test-mic": ("hardware_tests/hardware_test.py", "microphone level and recording"),
+    "test-oled": ("hardware_tests/hardware_test.py", "text and a clock on the OLED"),
+    "test-touch": ("hardware_tests/hardware_test.py", "the three touch pads"),
     "drive-basic": ("../legacy/3Nov-latest.py", "the original terminal drive menu"),
     "drive-multisonar": ("../legacy/13Nov-multisonar.py", "terminal drive menu, four sonars"),
     "dashboard-basic": ("dashboard/server.py", "the first web dashboard"),
@@ -48,15 +51,18 @@ PY_TOOLS = {
     "dashboard-multisonar": ("../legacy/server_multisonar.py", "dashboard + four sonars"),
     "wiring": ("robot_config.py", "check the pin table for conflicts"),
 }
+# Tools that share one script: the arguments that pick the part (20 Nov 2026: hardware tests in one file)
+TOOL_ARGS = {"test-sensors": ["sensors"], "test-ultrasonic": ["sensors"], "test-camera": ["camera"], "test-mic": ["mic"],
+             "test-oled": ["oled"], "test-touch": ["touch"]}
 SH_TOOLS = {
-    "setup": ("setup.sh", "install everything (once)"),
-    "deploy": ("deploy.sh", "copy the project to the Pi"),
-    "service": ("install-service.sh", "start on boot (systemd)"),
-    "hotspot": ("hotspot.sh", "make the Pi its own Wi-Fi network"),
-    "realtime": ("enable-realtime.sh", "allow real-time priority"),
+    "setup": ("scripts/setup.sh", "install everything (once)"),
+    "deploy": ("../tools/deploy.sh", "copy run_prototype to the Pi (from the laptop)"),
+    "service": ("scripts/install-service.sh", "start on boot (systemd)"),
+    "hotspot": ("scripts/hotspot.sh", "make the Pi its own Wi-Fi network"),
+    "realtime": ("scripts/enable-realtime.sh", "allow real-time priority"),
 }
 DESKBOT_COMMANDS = {"run", "assistant", "sensors", "model", "doctor", "bench", "test", "pins"}
-CHECKED_LIBRARIES = [("numpy", "numpy"), ("Pillow", "PIL"), ("matplotlib", "matplotlib"), ("scipy", "scipy"), ("simple-pid", "simple_pid"),
+CHECKED_LIBRARIES = [("numpy", "numpy"), ("Pillow", "PIL"), ("matplotlib", "matplotlib"), ("simple-pid", "simple_pid"),
                      ("ahrs", "ahrs"), ("pytweening", "pytweening"), ("luma.core", "luma.core"), ("luma.oled", "luma.oled.device"),
                      ("smbus2", "smbus2"), ("Adafruit MPU-6050", "adafruit_mpu6050"), ("MediaPipe", "mediapipe.tasks.python.vision")]
 
@@ -67,13 +73,17 @@ def run_tool(name, args):
         if not script.exists():
             ui.fail(f"{name} isn't part of run_prototype. It is in the full repository: {PY_TOOLS[name][0].replace('../', '')}")
             return 1
-        cmd = [sys.executable, str(script), *args]
+        cmd = [sys.executable, str(script), *TOOL_ARGS.get(name, []), *args]
     else:
         bash = shutil.which("bash")
         if not bash:
             ui.fail("This tool needs bash (Git Bash on Windows).")
             return 1
-        cmd = [bash, str(ROOT / "scripts" / SH_TOOLS[name][0]), *args]
+        script = (ROOT / SH_TOOLS[name][0]).resolve()   # paths relative to run_prototype/ (deploy is in ../tools)
+        if not script.exists():
+            ui.fail(f"{name} isn't part of run_prototype. It is in the full repository: {SH_TOOLS[name][0].replace('../', '')}")
+            return 1
+        cmd = [bash, str(script), *args]
     try:
         code = subprocess.call(cmd, cwd=ROOT)
     except KeyboardInterrupt:
@@ -392,7 +402,7 @@ def _tools_menu():
 def menu():
     ui.header("Desk Assistant Robot", "↑/↓ to move, Enter to choose, Ctrl+C to go back")
     if ui.interactive():
-        _offer_health()
+        recovery.guarded(_offer_health, where="The health check", after_crash=ui.pause)
     while True:
         c = ui.choose("What do you want to do?", [
             ("🩺 Run all tests and report health", "health"),
@@ -414,64 +424,70 @@ def menu():
         if c in (None, "quit"):
             ui.out("Bye.")
             return 0
-        if c in ("start", "sim"):
-            _start_menu(c == "sim")
-            continue
-        if c in ("buddy", "buddy-sim"):
-            _start_menu(c == "buddy-sim", buddy=True)
-            continue
-        if c in ("pro", "pro-sim"):
-            _start_menu(c == "pro-sim", pro=True)
-            continue
-        if c in ("full", "full-sim"):
-            _start_menu(c == "full-sim", full=True)
-            continue
-        if c == "help":
-            cmd_help()
-            ui.pause()
-            continue
-        if c in ("hub", "hub-sim"):
-            _start_menu(c == "hub-sim", hub=True)
-            continue
-        if c == "tools":
-            _tools_menu()
-            continue
-        if c == "health":
-            cmd_health()
-            ui.pause()
-            continue
-        if c in ("calibrate", "calibrate-sim"):
-            cmd_calibrate(sim=c == "calibrate-sim")
-        elif c == "face":
-            cmd_face()
-        elif c == "preview":
-            cmd_face(preview=True)
-        elif c == "imu":
-            cmd_imu()
-        elif c == "gestures":
-            cmd_gestures(argparse.Namespace(action="list"))
-        elif c == "outputs":
-            cmd_outputs()
-        elif c == "doctor":
-            base.main(["doctor"])
-            cmd_check()
-        elif c == "bench":
-            action = ui.choose("Benchmark", [("Everything (downloads ~420 MB once)", "all"), ("Detection under lighting", "images"),
-                                             ("Tracking on video", "video"), ("Runtime latency", "system"), ("Back", None)])
-            if action:
-                base.main(["bench", action])
-                archive("../benchmarks/results", "benchmarks")
-        elif c == "model":
-            action = ui.choose("Model", [("Info", "info"), ("Export to NCNN", "export"), ("Benchmark", "bench"), ("Back", None)])
-            if action:
-                base.main(["model", action])
-        elif c == "sensors":
-            camera = base._ask_camera("pi")
-            if camera and camera != "none":
-                base.main(["sensors", "--camera", camera])
-        else:
-            base.main([c])
+        # 21 Nov 2026: one action crashing (a missing package, a sensor not answering) is explained and you
+        # come back here, instead of the whole program ending (deskbot/recovery.py).
+        recovery.guarded(_menu_action, c, where=f"'{c}'", after_crash=ui.pause)
+
+
+def _menu_action(c):
+    if c in ("start", "sim"):
+        _start_menu(c == "sim")
+        return
+    if c in ("buddy", "buddy-sim"):
+        _start_menu(c == "buddy-sim", buddy=True)
+        return
+    if c in ("pro", "pro-sim"):
+        _start_menu(c == "pro-sim", pro=True)
+        return
+    if c in ("full", "full-sim"):
+        _start_menu(c == "full-sim", full=True)
+        return
+    if c == "help":
+        cmd_help()
         ui.pause()
+        return
+    if c in ("hub", "hub-sim"):
+        _start_menu(c == "hub-sim", hub=True)
+        return
+    if c == "tools":
+        _tools_menu()
+        return
+    if c == "health":
+        cmd_health()
+        ui.pause()
+        return
+    if c in ("calibrate", "calibrate-sim"):
+        cmd_calibrate(sim=c == "calibrate-sim")
+    elif c == "face":
+        cmd_face()
+    elif c == "preview":
+        cmd_face(preview=True)
+    elif c == "imu":
+        cmd_imu()
+    elif c == "gestures":
+        cmd_gestures(argparse.Namespace(action="list"))
+    elif c == "outputs":
+        cmd_outputs()
+    elif c == "doctor":
+        base.main(["doctor"])
+        cmd_check()
+    elif c == "bench":
+        action = ui.choose("Benchmark", [("Everything (downloads ~420 MB once)", "all"), ("Detection under lighting", "images"),
+                                         ("Tracking on video", "video"), ("Runtime latency", "system"), ("Back", None)])
+        if action:
+            base.main(["bench", action])
+            archive("../benchmarks/results", "benchmarks")
+    elif c == "model":
+        action = ui.choose("Model", [("Info", "info"), ("Export to NCNN", "export"), ("Benchmark", "bench"), ("Back", None)])
+        if action:
+            base.main(["model", action])
+    elif c == "sensors":
+        camera = base._ask_camera("pi")
+        if camera and camera != "none":
+            base.main(["sensors", "--camera", camera])
+    else:
+        base.main([c])
+    ui.pause()
 
 
 # ---------------- arguments ----------------

@@ -1,15 +1,15 @@
-# Camera test: `test_camera.py` (13 Nov 2026)
+# Camera test: `hardware_test.py camera` (13 Nov 2026; was `test_camera.py` until 20 Nov 2026, see hardware-test.md)
 
 Shows the Raspberry Pi camera module's image **directly in the terminal**, so it works over SSH with no monitor
 and no desktop. Standalone: it needs only `picamera2` and `numpy`, which are both preinstalled on Raspberry Pi OS Bookworm
 (otherwise `sudo apt install -y python3-picamera2`).
 
 ```bash
-python3 hardware_tests/test_camera.py                 # live view until you press Enter (or Ctrl+C)
-python3 hardware_tests/test_camera.py --snap          # one picture, then exit
-python3 hardware_tests/test_camera.py --save pic.jpg  # also save a JPEG (copy it to a laptop to see it properly)
-python3 hardware_tests/test_camera.py --ascii         # plain characters, for terminals without colour
-python3 hardware_tests/test_camera.py --width 80      # fixed width in characters (default: fit the terminal)
+python3 hardware_tests/hardware_test.py camera                 # live view until you press Enter (or Ctrl+C)
+python3 hardware_tests/hardware_test.py camera --snap          # one picture, then exit
+python3 hardware_tests/hardware_test.py camera --save pic.jpg  # also save a JPEG (copy it to a laptop to see it properly)
+python3 hardware_tests/hardware_test.py camera --ascii         # plain characters, for terminals without colour
+python3 hardware_tests/hardware_test.py camera --width 80      # fixed width in characters (default: fit the terminal)
 ```
 
 To view the saved photo on your laptop: `scp pi@<pi-ip>:~/desk-assistant-robot/pic.jpg .`

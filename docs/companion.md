@@ -34,7 +34,7 @@ every command sender if the motor process had died.
 | Animation easing | `pytweening` |
 | Hand gestures | MediaPipe `GestureRecognizer` |
 | Figures | Matplotlib (object API, Agg) |
-| Calibration maths | NumPy `polyfit`, SciPy `Rotation.align_vectors`, OpenCV checkerboard calibration |
+| Calibration maths | NumPy `polyfit`, a numpy Rodrigues rotation (was SciPy `Rotation.align_vectors` until 20 Nov 2026), OpenCV checkerboard calibration |
 
 `imufusion` was rejected because its compiled module is blocked by Smart App Control on the development laptop;
 `ahrs` is pure Python (about 40 µs per update there), so the same code path runs in tests and on the Pi. No Python

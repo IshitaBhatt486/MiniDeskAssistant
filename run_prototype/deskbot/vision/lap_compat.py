@@ -1,11 +1,17 @@
 """
-Fallback for the `lap` package (used by Ultralytics' ByteTrack for linear assignment).
+Linear assignment with `lap`'s semantics, solved in numpy (20 Nov 2026: the robot installs neither `lap` nor scipy).
+
+`lapjv()` is what deskbot/vision/bytetrack.py uses. `install()` is only for the old Ultralytics detector
+(detector.YoloDetector, the .pt fallback on a laptop): it registers this as the `lap` module if the real one is
+missing or blocked.
+
+History: `lap` was the package Ultralytics' ByteTrack used for linear assignment.
 
 `lap` is a compiled extension. Some machines refuse to load it, for example Windows with Smart App
 Control on ("DLL load failed ... An Application Control policy has blocked this file"). In that case
 `install()` registers a stand-in module named `lap` whose `lapjv(cost, extend_cost=True, cost_limit=L)`
-gives exactly the same assignment as lap's, solved with scipy's Hungarian solver (or Ultralytics'
-own fallback if scipy is missing).
+gives exactly the same assignment as lap's, solved with linear_sum_assignment() below (numpy Hungarian;
+it used scipy's until 20 Nov 2026).
 
 On the Raspberry Pi the real `lap` loads normally and this module does nothing.
 """
@@ -18,11 +24,54 @@ import types
 import numpy as np
 
 
+def linear_sum_assignment(cost):
+    """Minimum-cost assignment of a rectangular cost matrix, numpy only (20 Nov 2026; was scipy's).
+    Same contract as scipy.optimize.linear_sum_assignment: (rows sorted ascending, cols), min(n, m) pairs.
+    Shortest augmenting path Hungarian algorithm with potentials (Kuhn-Munkres / Jonker-Volgenant style),
+    O(n^2 m); the tracker's matrices are a few dozen at most, so this takes well under a millisecond."""
+    cost = np.asarray(cost, dtype=float)
+    if cost.size == 0:
+        return np.zeros(0, int), np.zeros(0, int)
+    transposed = cost.shape[0] > cost.shape[1]
+    a = cost.T if transposed else cost                  # n rows <= m cols
+    n, m = a.shape
+    u, v = np.zeros(n + 1), np.zeros(m + 1)
+    p = np.zeros(m + 1, int)                            # p[j] = row (1-based) matched to column j; 0 = free
+    way = np.zeros(m + 1, int)
+    for i in range(1, n + 1):
+        p[0], j0 = i, 0
+        minv = np.full(m + 1, np.inf)
+        used = np.zeros(m + 1, bool)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            cur = a[i0 - 1] - u[i0] - v[1:]             # reduced costs from row i0 to every column
+            free = ~used[1:]
+            better = free & (cur < minv[1:])
+            minv[1:][better] = cur[better]
+            way[1:][better] = j0
+            cand = np.where(free, minv[1:], np.inf)
+            j1 = int(np.argmin(cand)) + 1
+            delta = cand[j1 - 1]
+            u[p[used]] += delta
+            v[used] -= delta
+            minv[1:][free] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while j0:                                       # flip the augmenting path
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+    cols = np.flatnonzero(p[1:])
+    rows = p[1:][cols] - 1
+    if transposed:
+        rows, cols = cols, rows
+    order = np.argsort(rows)
+    return rows[order], cols[order]
+
+
 def _solve(cost):
-    try:
-        from scipy.optimize import linear_sum_assignment
-    except ImportError:  # pragma: no cover
-        from ultralytics.utils.ops import linear_sum_assignment
     return linear_sum_assignment(cost)
 
 

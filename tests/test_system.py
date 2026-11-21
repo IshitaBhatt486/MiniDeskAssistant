@@ -166,26 +166,31 @@ class TestServer(unittest.TestCase):
 
 
 def _yolo_available():
-    try:
-        import ultralytics  # noqa: F401
-    except Exception:
-        return False
-    from deskbot.vision.model import find_model
+    """An NCNN export that loads here (the Pi), or the .pt weights + Ultralytics (the laptop)."""
+    import importlib.util
+
     from deskbot.config import VisionConfig
-    return bool(find_model(VisionConfig())) or (deskbot.MODELS_DIR / "yolo26n.pt").exists()
+    from deskbot.vision.model import find_model
+    if find_model(VisionConfig()):
+        try:
+            import ncnn  # noqa: F401  (Windows Smart App Control may block the DLL)
+            return True
+        except Exception:
+            pass
+    return importlib.util.find_spec("ultralytics") is not None and (deskbot.MODELS_DIR / "yolo26n.pt").exists()
 
 
-@unittest.skipUnless(_yolo_available(), "ultralytics or the YOLO26n model is not installed (run scripts/setup.sh)")
+@unittest.skipUnless(_yolo_available(), "no usable YOLO26n model here (run scripts/export-model.sh on the Pi)")
 class TestYolo(unittest.TestCase):
     def test_detects_and_tracks_on_sample_photo(self):
         from deskbot.config import VisionConfig
         from deskbot.vision.camera import Frame
-        from deskbot.vision.detector import YoloDetector
+        from deskbot.vision.detector import make_detector
         from deskbot.vision.model import find_model, sample_image
 
         cfg = AppConfig()
         path = find_model(VisionConfig()) or deskbot.MODELS_DIR / "yolo26n.pt"
-        det = YoloDetector(cfg.vision, path)
+        det = make_detector(cfg.vision, path)   # NcnnDetector on the Pi, Ultralytics YoloDetector for the .pt
         img = sample_image(cfg.camera)
         det.warmup(img)
         dets = []

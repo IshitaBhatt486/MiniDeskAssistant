@@ -9,6 +9,9 @@ On top of the runtime's dashboard and API it adds:
     GET  /remote                      phone-sized remote control page (hold-to-drive, talk, replies)
     GET  /api/assistant               everything the assistant/presence cards show (polled ~1 Hz)
     GET  /api/assistant/speech.wav    the newest spoken reply (chipmunk), for playback in the browser
+    GET  /speaker                     21 Nov 2026: the laptop as the speaker (assistant/laptop_speaker.py)
+    GET  /api/speaker/clips?after=&wait=&listener=&interrupt=   long poll for new sound clips
+    GET  /api/speaker/clip/<id>.wav   one clip
     POST /api/assistant/text          {"text"}                      -> reply entry
     POST /api/assistant/audio         body = 16 kHz mono WAV (<= 2 MB, Content-Type audio/wav) -> reply entry
     POST /api/assistant/listen        {"seconds"}  record with the robot's own microphone -> reply entry
@@ -52,6 +55,8 @@ ASSISTANT_STATIC = {
     "/static/remote.js": ("remote.js", "text/javascript; charset=utf-8"),
     "/static/voice-recorder.js": ("voice-recorder.js", "text/javascript; charset=utf-8"),
     "/static/navigation.js": ("navigation.js", "text/javascript; charset=utf-8"),
+    "/static/laptop-speaker.js": ("laptop-speaker.js", "text/javascript; charset=utf-8"),
+    "/speaker": ("speaker.html", "text/html; charset=utf-8"),
     "/remote": ("remote.html", "text/html; charset=utf-8"),
     "/remote.html": ("remote.html", "text/html; charset=utf-8"),
 }
@@ -66,7 +71,7 @@ def build_assistant_index():
                         '<link rel="stylesheet" href="/static/fusion.css">\n  <link rel="stylesheet" href="/static/assistant.css">')
     page = page.replace('<script src="/static/runtime.js"></script>',
                         '<script src="/static/runtime.js"></script>\n  <script src="/static/voice-recorder.js"></script>\n'
-                        '  <script src="/static/assistant.js"></script>')
+                        '  <script src="/static/assistant.js"></script>\n  <script src="/static/laptop-speaker.js"></script>')
     page = page.replace("<title>Desk Robot · Vision &amp; Maps</title>", "<title>Desk Robot · Assistant</title>")
     return page.encode("utf-8")
 
@@ -88,12 +93,37 @@ class AssistantHandler(RuntimeHandler):
             return self._json(200, assistant_state(self.app))
         if path == "/api/nav/map":
             return self._json(200, nav_map(self.app))
+        if path == "/api/speaker/clips":
+            return self._speaker_clips()
+        if path.startswith("/api/speaker/clip/") and path.endswith(".wav"):
+            try:
+                wav = self.app.speaker.laptop.clip(int(path[len("/api/speaker/clip/"):-4]))
+            except ValueError:
+                wav = None
+            if wav is None:
+                return self._json(404, {"error": "That clip is gone (only the newest ones are kept)"})
+            return self._send(200, wav, "audio/wav")
         if path == "/api/assistant/speech.wav":
             wav = self.app.speaker.last_wav
             if wav is None:
                 return self._json(404, {"error": "Nothing said yet"})
             return self._send(200, wav, "audio/wav")
         super().do_GET()
+
+    def _speaker_clips(self):
+        from urllib.parse import parse_qs, urlsplit
+        q = parse_qs(urlsplit(self.path).query)
+
+        def num(name, default):
+            try:
+                return float(q.get(name, [default])[0])
+            except (TypeError, ValueError):
+                return default
+        sp = self.app.speaker
+        out = sp.laptop.wait_clips(int(num("after", -1)), num("wait", 20), q.get("listener", [""])[0],
+                                   int(num("interrupt", -1)))
+        out.update(output=sp.output(), listeners=sp.laptop.listeners())
+        return self._json(200, out)
 
     # -- POST --
 

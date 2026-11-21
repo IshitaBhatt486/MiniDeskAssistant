@@ -78,7 +78,7 @@ permanently damage the Raspberry Pi.
 
 ## Installing the prototype (18 Nov 2026)
 
-Copy only `run_prototype/` to the Pi; see `run_prototype/README.md`. Memory budget, estimated: robot processes about 350 MB, vision stack
+Copy only `run_prototype/` to the Pi; see [run-prototype.md](run-prototype.md). Memory budget, estimated: robot processes about 350 MB, vision stack
 about 360 MB, local speech-to-text a few hundred MB while it transcribes. All of it is unverified on real hardware.
 
 **Known CPU risk:** the navigation process is pinned to core 3 and also runs the mapper, web server and speech-to-text. While speech is being

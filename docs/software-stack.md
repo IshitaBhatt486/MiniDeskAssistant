@@ -34,7 +34,7 @@
 
 # full app `deskbot/` (15 Nov 2026)
 - one process: robot (re-uses `dashboard/robot.py` + `multisonar.py`) + vision + fusion mapping + dashboard. Entry: `python -m deskbot` / `scripts/*.sh`
-- vision: **Ultralytics YOLO26n** exported to **NCNN** (fastest CPU format on the Pi), **ByteTrack** through `model.track(persist=True)`, **picamera2** at 320x240 from the ISP. Runs locally, no API costs. Details: vision.md
+- vision: **Ultralytics YOLO26n** exported to **NCNN** (fastest CPU format on the Pi), run directly with the `ncnn` package and **ByteTrack** in numpy (20 Nov 2026, [ncnn-detector.md](ncnn-detector.md); before that through `model.track(persist=True)`), **picamera2** at 320x240 from the ISP. Runs locally, no API costs. Details: vision.md
 - mapping: **numpy** decaying log-odds grid + object-level semantic map + fused confidence heatmap. Details: fusion.md
 - CLI: **questionary** (arrow-key menus) + **rich** (tables), with plain fallbacks. Details: deskbot.md
 - tests: stdlib `unittest` (`tools/run_tests.sh`)

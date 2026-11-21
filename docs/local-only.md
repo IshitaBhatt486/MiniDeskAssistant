@@ -26,7 +26,7 @@ use each feature.
 | model | size | used by | file |
 | --- | --- | --- | --- |
 | YOLO26n (NCNN) | 6 MB | the camera | `models/` (`python main.py model export`) |
-| faster-whisper `tiny.en` | 75 MB | speech-to-text | the faster-whisper cache |
+| Whisper `tiny.en-q8_0` (whisper.cpp) | 44 MB | speech-to-text | `models/whisper/` |
 | Vosk small English | 40 MB | "Hey Pip" | `models/vosk-model-small-en-us-0.15/` |
 | YuNet face detector | 0.2 MB | focus mode, faces | `models/face_detection_yunet_2023mar.onnx` |
 | SFace face recogniser | 37 MB | owner recognition | `models/face_recognition_sface_2021dec.onnx` |

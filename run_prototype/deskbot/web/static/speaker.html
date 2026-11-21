@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Desk Robot Speaker</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    body { margin: 0; min-height: 100vh; background: var(--bg, #f7f7f5); color: var(--ink, #111); font-family: system-ui, sans-serif; }
+    main { max-width: 460px; margin: 0 auto; padding: 28px 16px; display: flex; flex-direction: column; gap: 16px; }
+    h1 { font-size: 20px; margin: 0; }
+    p { margin: 0; color: var(--ink-2, #555); font-size: 14px; line-height: 1.45; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>🔊 Desk robot speaker</h1>
+    <p>Keep this tab open on the laptop: everything the robot says, its alerts and its sounds play here, in order.
+       Click <b>Turn on</b> once (browsers only play sound after a click).</p>
+    <div id="laptop-speaker-page"></div>
+    <p>The dashboard has the same box in its bottom-right corner, so you only need one of them; turning it on in one
+       tab turns it off in the others. <a href="/">Open the dashboard</a></p>
+  </main>
+  <script src="/static/laptop-speaker.js"></script>
+</body>
+</html>

@@ -7,7 +7,7 @@ The phrase follows the robot's name (assistant settings "robot_name"): "hey <nam
              ["hey pip", "pip", "[unk]"], so it is tiny, fast (a few % of one Pi 4 core) and needs no training.
              Model: models/vosk-model-small-en-us-0.15 (40 MB; downloaded once, or by scripts/setup.sh).
              If the name isn't in Vosk's vocabulary, the status says so (rename the robot or use whisper).
-    whisper  fallback: speech bursts of up to 2.5 s are transcribed with the local faster-whisper model already used
+    whisper  fallback: speech bursts of up to 2.5 s are transcribed with the local Whisper (whisper.cpp) model already used
              for speech-to-text, and checked for the phrase. Heavier, but "hey pip, what time is it" in one breath
              works directly (the words after the name become the request).
 
@@ -139,7 +139,7 @@ class VoskDetector:
         words = self.phrase.split()
         missing = [w for w in words if model.find_word(w) < 0]
         if missing:
-            self.problem = f"Vosk doesn't know the word(s) {', '.join(missing)}; rename the robot or install faster-whisper"
+            self.problem = f"Vosk doesn't know the word(s) {', '.join(missing)}; rename the robot or install pywhispercpp"
             raise RuntimeError(self.problem)
         self.rec = KaldiRecognizer(model, RATE, json.dumps([self.phrase, words[-1], "[unk]"]))
         return self
@@ -161,7 +161,7 @@ class VoskDetector:
 
 
 class WhisperDetector:
-    """Energy-gated bursts transcribed by the local Whisper (assistant/stt.py LocalWhisper)."""
+    """Energy-gated bursts transcribed by the local Whisper (assistant/stt.py WhisperCpp)."""
     name = "whisper"
 
     def __init__(self, transcriber, phrase):
@@ -174,7 +174,7 @@ class WhisperDetector:
     def load(self):
         local = self.stt.backends.get("local")
         if local is None or not local.available():
-            raise RuntimeError("faster-whisper isn't installed")
+            raise RuntimeError("local Whisper isn't installed (pip install pywhispercpp)")
         self.local = local
         return self
 

@@ -3,8 +3,10 @@ Speech to text. Input is always a 16 kHz mono 16-bit WAV (the dashboard records 
 robot's own USB mic records it with arecord).
 
 Backends (settings "stt"; "auto" picks the first available in this order):
-    local   faster-whisper on the Pi's CPU, offline and free (`pip install faster-whisper`);
-            tiny.en takes ~1-2 s for a 5 s clip on a Pi 4, base.en ~3-5 s
+    local   whisper.cpp (`pip install pywhispercpp`, 20 Nov 2026) on the Pi's CPU, offline and free: the C++ Whisper
+            port built for ARM NEON, ~10 MB installed instead of faster-whisper's ~260 MB (CTranslate2, onnxruntime,
+            PyAV). Same tiny.en model, quantised to 8 bits (tiny.en-q8_0, 44 MB, downloaded once into models/whisper/).
+            WhisperCpp below; the old faster-whisper class (LocalWhisper) is still used if only that is installed.
     groq    Whisper large-v3-turbo on Groq's free tier - fast (~0.3 s), needs GROQ_API_KEY
     openai  OpenAI whisper-1, needs OPENAI_API_KEY
     windows Windows' built-in offline recogniser (System.Speech dictation, via PowerShell), only on Windows.
@@ -115,7 +117,77 @@ class OpenAIWhisper(_WhisperHTTP):
     key_env = "OPENAI_API_KEY"
 
 
+def wav_to_float(wav: bytes):
+    """16-bit mono WAV bytes -> float32 samples in -1..1 (resampled to 16 kHz by linear interpolation if needed)."""
+    with wave.open(io.BytesIO(wav)) as w:
+        rate, ch = w.getframerate(), w.getnchannels()
+        a = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768.0
+    if ch > 1:
+        a = a.reshape(-1, ch).mean(1)
+    if rate != 16000 and len(a):
+        a = np.interp(np.arange(0, len(a), rate / 16000.0), np.arange(len(a)), a).astype(np.float32)
+    return a
+
+
+def trim_silence(a, rate=16000, frame=0.02, keep=0.25, floor_db=-45.0):
+    """Cut leading/trailing silence (20 ms frames quieter than floor_db, keeping `keep` s of margin). This stands in for
+    faster-whisper's VAD filter: Whisper tends to invent words ("Thank you.") in long silent stretches."""
+    n = int(rate * frame)
+    if len(a) < n * 3:
+        return a
+    frames = a[: len(a) // n * n].reshape(-1, n)
+    db = 20 * np.log10(np.sqrt((frames ** 2).mean(1)) + 1e-9)
+    loud = np.flatnonzero(db > floor_db)
+    if not len(loud):
+        return a[:0]
+    pad = int(keep / frame)
+    start, end = max(0, loud[0] - pad) * n, min(len(frames), loud[-1] + 1 + pad) * n
+    return a[start:end]
+
+
+class WhisperCpp:
+    """Local speech to text with whisper.cpp through pywhispercpp (the robot's default since 20 Nov 2026)."""
+    name = "local"
+
+    def __init__(self, model_name="tiny.en", threads=2, models_dir=None):
+        # a plain name gets its 8-bit version: half the size, ~same accuracy, faster on the Cortex-A72
+        self.model_name = model_name if ("-q" in model_name or model_name.endswith(".bin")) else f"{model_name}-q8_0"
+        self.threads = threads
+        self.models_dir = models_dir
+        self._model = None
+        self._lock = threading.Lock()
+
+    def available(self):
+        try:
+            import importlib.util
+            return importlib.util.find_spec("pywhispercpp") is not None
+        except Exception:
+            return False
+
+    def _load(self):
+        from pywhispercpp.model import Model
+
+        if self.models_dir is None:
+            from .. import MODELS_DIR
+            self.models_dir = MODELS_DIR / "whisper"
+        os.makedirs(self.models_dir, exist_ok=True)
+        # n_threads 2: the camera process and the safety loop keep the other cores; greedy decoding (strategy 0)
+        return Model(self.model_name, models_dir=str(self.models_dir), n_threads=self.threads,
+                     print_progress=False, print_realtime=False, redirect_whispercpp_logs_to=None)
+
+    def transcribe(self, wav: bytes, timeout=None):
+        with self._lock:   # one transcription at a time; the Pi has no spare cores
+            if self._model is None:
+                self._model = self._load()
+            audio = trim_silence(wav_to_float(wav))
+            if len(audio) < 16000 * 0.3:
+                return ""
+            segments = self._model.transcribe(audio)
+            return " ".join(seg.text.strip() for seg in segments).strip()
+
+
 class LocalWhisper:
+    """faster-whisper (the local backend until 20 Nov 2026). Used only where pywhispercpp isn't installed."""
     name = "local"
 
     def __init__(self, model_name="tiny.en"):
@@ -188,12 +260,22 @@ class WindowsSpeech:
             os.unlink(path)
 
 
+def local_backend(model_name):
+    """whisper.cpp if installed (the robot), else faster-whisper if that is (an older install), else whisper.cpp
+    so the error says what to install."""
+    cpp = WhisperCpp(model_name)
+    if cpp.available():
+        return cpp
+    old = LocalWhisper(model_name)
+    return old if old.available() else cpp
+
+
 class Transcriber:
     def __init__(self, settings, alerts=None):
         self.settings = settings
         self.alerts = alerts
         self.backends = {"groq": GroqWhisper(), "openai": OpenAIWhisper(),
-                         "local": LocalWhisper(settings.get("local_whisper_model", "tiny.en")),
+                         "local": local_backend(settings.get("local_whisper_model", "tiny.en")),
                          "windows": WindowsSpeech()}
         self.last = None    # {"backend", "ms", "text"} or {"error"}
 
@@ -227,7 +309,7 @@ class Transcriber:
         order = self.order()
         if not order:
             raise SttError("I can't understand speech yet: add a GROQ_API_KEY to secrets.env, "
-                           "or install faster-whisper. You can type to me instead.")
+                           "or install pywhispercpp. You can type to me instead.")
         errors = []
         for name in order:
             t0 = time.perf_counter()

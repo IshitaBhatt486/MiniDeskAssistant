@@ -26,13 +26,13 @@ from pathlib import Path
 
 import numpy as np
 
-from .. import MODELS_DIR, ROOT, ui
+from .. import MODELS_DIR, ROOT, recovery, ui
 from .config import OUTPUTS_DIR, load_config
 from .imu import G, calibration_file, load_calibration
 from .shared import fresh_imu
 
 PI_ONLY = {"smbus2", "adafruit_mpu6050", "luma.oled.device", "gpiozero", "mediapipe.tasks.python.vision"}
-LIBRARIES = [("NumPy", "numpy"), ("OpenCV", "cv2"), ("Pillow", "PIL"), ("Matplotlib", "matplotlib"), ("SciPy", "scipy"),
+LIBRARIES = [("NumPy", "numpy"), ("OpenCV", "cv2"), ("Pillow", "PIL"), ("Matplotlib", "matplotlib"),
              ("simple-pid", "simple_pid"), ("ahrs", "ahrs"), ("pytweening", "pytweening"), ("luma.core", "luma.core"),
              ("luma.oled", "luma.oled.device"), ("smbus2", "smbus2"), ("Adafruit MPU-6050", "adafruit_mpu6050"),
              ("gpiozero", "gpiozero"), ("MediaPipe", "mediapipe.tasks.python.vision")]
@@ -104,6 +104,11 @@ class Report:
 def check_software(r, sim, cfg):
     r.start("Software")
     r.add("Python", "pass" if sys.version_info >= (3, 9) else "fail", platform.python_version(), "Python 3.9 or newer is needed")
+    if recovery.venv_python() and not recovery.in_project_venv():   # 21 Nov 2026: the packages live in .venv
+        r.add("Python in use", "warn", f"{sys.executable}, not .venv (the installed packages are in .venv)",
+              ".venv/bin/python main.py")
+    elif is_pi() and recovery.venv_python() is None:
+        r.add("Python in use", "warn", "no .venv yet", "bash scripts/setup.sh")
     for label, module in LIBRARIES:
         try:
             importlib.import_module(module)
@@ -113,7 +118,7 @@ def check_software(r, sim, cfg):
             if module in PI_ONLY and not is_pi():
                 r.add(label, "skip", f"only needed on the Pi ({text})")
             else:
-                r.add(label, "fail", text, "bash scripts/setup.sh")
+                r.add(label, "fail", *recovery.explain(exc))
     try:
         import robot_config
         robot_config.validate()
@@ -367,7 +372,15 @@ def check_audio(r, sound):
         except Exception as exc:
             r.add("Speech engine", "fail", str(exc)[:120], "sudo apt install espeak-ng")
     player = Player()
-    r.add("Speaker output", "pass" if player.name else "fail", player.name or "no audio player", "sudo apt install alsa-utils")
+    # 21 Nov 2026: with speaker_output = laptop the browser plays the sound, so the Pi needs no player or speaker
+    from ..assistant.laptop_speaker import output_from_env
+    output = output_from_env() or Settings().get("speaker_output", "laptop")
+    if output == "laptop":
+        r.add("Speaker output", "pass", "the laptop: open the dashboard (or /speaker) and click Turn on in the Speaker box",
+              "to use a speaker on the robot later: choose 'the robot' in that box, or DESKBOT_SPEAKER=robot")
+        return _check_mic(r)
+    r.add("Speaker output", "pass" if player.name else "fail", f"{output}: {player.name or 'no audio player'}",
+          "sudo apt install alsa-utils, or play sound on the laptop: DESKBOT_SPEAKER=laptop")
     if sound and tts is not None and player.name:
         speaker = Speaker(Settings())
         try:
@@ -376,6 +389,13 @@ def check_audio(r, sound):
         except Exception as exc:
             r.add("Speaker sound", "fail", str(exc)[:120], "check DESKBOT_AUDIO_DEVICE")
         speaker.close()
+    _check_mic(r)
+
+
+def _check_mic(r):
+    from ..assistant.stt import capture_devices, record_robot_mic
+    from ..assistant.voice import read_wav
+
     if not shutil.which("arecord"):
         r.add("Microphone", "skip", "arecord is not available here")
         return
@@ -436,13 +456,13 @@ def _guarded(r, fn, *args):
     try:
         return fn(r, *args)
     except Exception as exc:
-        r.add("Check crashed", "fail", f"{fn.__name__}: {type(exc).__name__}: {str(exc)[:120]}")
+        what, fix = recovery.explain(exc)
+        path = recovery.save_traceback(exc)
+        r.add(f"Check could not run ({fn.__name__})", "fail", what, fix + (f"; details: {path.name} in outputs/errors" if path else ""))
         return None
 
 
 def run_health(sim=False, camera=None, motors=False, unit_tests=True, sound=False, live=True):
-    from .app import Rig
-
     camera = camera or ("sim" if sim else "pi")
     cfg = load_config()
     r = Report(live)
@@ -452,9 +472,16 @@ def run_health(sim=False, camera=None, motors=False, unit_tests=True, sound=Fals
     rig = None
     r.start("Starting the robot")
     try:
+        from .app import Rig          # inside the try (21 Nov 2026): a missing package is a FAIL line, not a crash
+
         rig = Rig(sim=sim, camera=camera)
     except Exception as exc:
-        r.add("Start", "fail", str(exc)[:160], "is the robot already running? sudo systemctl stop deskbot")
+        what, fix = recovery.explain(exc)
+        if not isinstance(exc, ImportError) and "systemctl" not in fix:
+            fix = "is the robot already running? sudo systemctl stop deskbot; " + fix
+        r.add("Start", "fail", what, fix)
+        r.start("Robot parts")
+        r.add("Sensors, IMU, eyes, camera, motors", "skip", "not tested: the robot could not start (see Start above)")
     if rig is not None:
         try:
             cfg = rig.cfg
@@ -483,4 +510,18 @@ def run_health(sim=False, camera=None, motors=False, unit_tests=True, sound=Fals
     say(f"Health: {r.verdict}, score {r.score}%  ({r.count('pass')} passed, {r.count('warn')} warnings, "
         f"{r.count('fail')} failed, {r.count('skip')} skipped)")
     ui.out(f"Report: {folder / 'report.md'}")
+    _missing_summary(r)
     return r
+
+
+def _missing_summary(r):
+    """21 Nov 2026: all missing packages in one line with one command, and the offer to install them now."""
+    if not any("is not installed" in c.detail for c in r.checks if c.status == "fail"):
+        return
+    try:
+        missing = recovery.missing_requirements()
+    except Exception:
+        return
+    if missing:
+        ui.warn(recovery.install_hint(missing))
+        recovery.offer_install_list(missing)

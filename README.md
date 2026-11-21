@@ -24,14 +24,14 @@ legacy/          earlier scripts, kept working
 Copy only `run_prototype/`. Full steps: [`docs/install-on-raspberry-pi.md`](docs/install-on-raspberry-pi.md).
 
 ```bash
-bash run_prototype/scripts/deploy.sh pi@<pi-address> --install
+bash tools/deploy.sh pi@<pi-address> --install
 ```
 
 | Item | Size |
 |---|---|
 | `run_prototype` code | about 1 MB (0.3 MB compressed) |
 | Vision and gesture models | about 14 MB |
-| Python packages | roughly 1.5-2.5 GB estimated; PyTorch is the largest |
+| Python packages | 427 MB on the Pi, measured (was 1.7 GB): MediaPipe 129 MB, OpenCV + ncnn 106 MB, matplotlib 59 MB, numpy 56 MB. See [`docs/slim-dependencies.md`](docs/slim-dependencies.md) |
 | Whole repository, without its environment or Git history | about 43 MB, of which 22 MB is benchmark data |
 
 | Pi | Expectation for the full robot |
@@ -208,7 +208,7 @@ The full robot, plus:
 | **Accounts** | card (view only) | linked accounts and every key, masked (`gsk_…a91f`); keys are changed only in `secrets.env` |
 
 Touch pads: 3× TTP223 on GPIO 7 (top), 8 (left), 14 (right), powered from **3.3 V**. Test them with
-`python3 hardware_tests/test_touch.py`. Design, wiring, thresholds and the pin-saving options:
+`python3 hardware_tests/hardware_test.py touch`. Design, wiring, thresholds and the pin-saving options:
 [`docs/pro.md`](docs/pro.md).
 
 ## What it costs to run (APIs)
@@ -259,10 +259,35 @@ So far this has been tested in simulation only. Details, rules, measurements and
 
 ## Improvements over earlier versions
 
+**Space savings, 20 Nov 2026.** The robot's Python packages on the Pi went from **1,711 MB to 427 MB** (−75 %),
+measured by installing both package sets for the Pi (aarch64, Python 3.11):
+
+| Step | Removed | Pi packages |
+| --- | --- | --- |
+| Before | | 1,711 MB (104 + MediaPipe) |
+| YOLO26n on NCNN directly, ByteTrack in numpy ([`docs/ncnn-detector.md`](docs/ncnn-detector.md)) | PyTorch, torchvision, Ultralytics, `lap`, polars, full-GUI OpenCV (headless instead) | 816 MB (86 + MediaPipe) |
+| numpy instead of scipy, whisper.cpp instead of faster-whisper, Claude over plain HTTPS ([`docs/slim-dependencies.md`](docs/slim-dependencies.md)) | scipy, faster-whisper + CTranslate2 + onnxruntime + PyAV + tokenizers, the `anthropic` SDK + pydantic + httpx2 | **427 MB (61 + MediaPipe)** |
+
+Same behaviour: detections, track IDs and boxes match Ultralytics frame by frame, track matching and IMU levelling
+match scipy, speech-to-text uses the same Whisper tiny.en model (8-bit), and Claude gets the same requests.
+What the 427 MB is now: MediaPipe 129, OpenCV + ncnn 106, matplotlib 59, numpy 56, Pillow 22, whisper.cpp 15, Vosk 8,
+the rest 34. The YOLO model is still exported once, in a temporary venv that `scripts/export-model.sh` deletes afterwards.
+
+**Upgrading an existing Pi:** run `bash scripts/setup.sh` (or `bash tools/deploy.sh pi@<pi> --install`). It uninstalls
+every package the robot no longer needs (45 of them: torch, torchvision, ultralytics, lap, polars, opencv-python, scipy,
+anthropic, faster-whisper, ctranslate2, onnxruntime, av, pydantic and their dependencies; the full list is `REMOVED_PKGS`
+in `setup.sh`) from `run_prototype/.venv`, clears pip's download cache, and installs `opencv-python-headless` and
+`pywhispercpp`. Your exported model is kept; the whisper.cpp model (44 MB) downloads on first use.
+Also removed from `run_prototype/`: the README, `deploy.sh` (now `tools/`), `oled.sh` and seven hardware-test files
+(now one `hardware_test.py`).
+
 Measured or directly countable. Results marked *sim* come from the simulator, not the real robot.
 
 | What | Before | Now | Evidence |
 | --- | --- | --- | --- |
+| Python packages on the Pi (aarch64, measured) | 1,711 MB, 104 packages | **427 MB, 61 packages (−1,284 MB, −75 %)** | aarch64 install of both sets with `uv`, [`docs/slim-dependencies.md`](docs/slim-dependencies.md) |
+| Dependencies replaced by small code | scipy 120 MB, faster-whisper stack 261 MB, `anthropic` SDK ~25 MB | **numpy Hungarian + Rodrigues, whisper.cpp 15 MB, `claude_http.py` (stdlib)** | `tests/test_slim_deps.py` |
+| PyTorch / Ultralytics on the robot | 625 MB torch + 172 MB polars + 136 MB GUI OpenCV + 16 smaller | **none** (YOLO26n on NCNN directly, ByteTrack in numpy; same detections and track IDs) | `tests/test_ncnn_detector.py` (60 frames vs Ultralytics) |
 | AI calls for a plain robot command ("turn left", "go to the cup") | 1 | **0** | `tests/test_assistant.py` fails if the API is called |
 | Camera frames sent for a question that doesn't need eyes | 1 per turn (~10 kB) | **0** | `needs_image`; detections still go as text |
 | Default speech-to-text | cloud first | **on the robot only, never falls back to the cloud** | `tests/test_assistant.py` |
@@ -300,7 +325,7 @@ Reports are saved in `benchmarks/results/`. Details: [`docs/benchmark.md`](docs/
 - Motors, safety rules, sonars, IR, IMU, wheel encoders, stuck-wheel detection
 - Camera capture, object detection (YOLO26n), tracking, colour of detected objects
 - Maps, navigation, path planning, home, no-go zones
-- Speech to text (default `stt: local`, using `faster-whisper`) and text to speech (Piper, eSpeak NG)
+- Speech to text (default `stt: local`, using whisper.cpp) and text to speech (Piper, eSpeak NG)
 - Plain robot commands, "what do you see", "what colour is the cup", "what is this" when the detector recognises it
 - OLED face, sounds, gestures, Bluetooth phone presence, dashboard, saved outputs
 
@@ -344,7 +369,7 @@ Nothing above sends your API keys anywhere except the service they belong to. Th
 ```bash
 # on the laptop (Git Bash): copy everything to a cleaned Pi, install it, start it on every boot
 cp secrets.env.example secrets.env        # add ANTHROPIC_API_KEY (AI brain) + GROQ_API_KEY (speech to text, free tier)
-bash scripts/deploy.sh pi@deskbot.local --wipe-home --install --service
+bash tools/deploy.sh pi@deskbot.local --wipe-home --install --service
 # or by hand on the Pi:  bash scripts/assistant.sh        anywhere, no hardware:  bash scripts/assistant.sh --sim
 ```
 
@@ -353,7 +378,7 @@ To use a phone/laptop microphone, open `https://<pi>:8443` instead (accept the c
 `bash scripts/hotspot.sh on` makes the Pi its own Wi-Fi network (dashboard at `http://10.42.0.1:8000`).
 
 - **Talk to it**: hold-to-talk in the browser (or the robot's USB mic) → speech-to-text (Groq Whisper / OpenAI /
-  offline faster-whisper) → **Claude** gets your words + what the camera sees (detections, frame, remembered map
+  offline whisper.cpp) → **Claude** gets your words + what the camera sees (detections, frame, remembered map
   objects, sensors) + the **personality** you set → JSON `{"speech", "mood", "commands"}` → said in a **chipmunk
   voice** on the speaker, shown on the dashboard, and the commands (move, turn, spin, dance, find phone, sleep, …)
   run with every safety rule. Free web APIs: weather (Open-Meteo), Wikipedia, jokes, currency, time.
@@ -374,7 +399,7 @@ dashboard, started by one command as **four processes, one per CPU core** (see b
 no cloud, no API costs.
 
 ```bash
-bash scripts/setup.sh      # once: camera packages, venv, Ultralytics + NCNN, exports YOLO26n to NCNN
+bash scripts/setup.sh      # once: camera packages, venv, NCNN + OpenCV, exports YOLO26n to NCNN (PyTorch only in a temporary venv)
 bash scripts/start.sh      # start everything -> http://localhost:8000   (--lan for your phone/laptop)
 bash tools/run_tests.sh       # all unit tests (no hardware needed)
 bash scripts/sensors.sh    # test sensors: ultrasonic, IR, camera, camera + detection (motors never move)
@@ -647,35 +672,25 @@ Each movement runs a control loop for the requested duration. Every **20 ms**
 
 ## Four ultrasonic sensors
 
-**Test the sensors first** (motors are never touched). Choose a sensor and its readings print until you press Enter:
+**Test the hardware first** (motors are never touched). Every test is in one file, `hardware_tests/hardware_test.py`:
+pick one from the menu, it runs until you press Enter, and you come back to the menu.
 
 ```bash
-python3 hardware_tests/test_sensors.py       # any of the 6 sensors (4 ultrasonic + 2 IR) or the camera, pins from robot_config.py
-bash scripts/sensors.sh       # same + all sensors at once + camera with live YOLO26n object detection
-python3 hardware_tests/test_ultrasonic.py    # ultrasonics only, standalone: copy just this file to the Pi
+python3 hardware_tests/hardware_test.py                 # menu: sensors, camera, mic, oled, touch
+python3 hardware_tests/hardware_test.py sensors         # any ultrasonic or IR sensor, live readings
+python3 hardware_tests/hardware_test.py camera          # camera image in the terminal (SSH ok); --snap, --save pic.jpg, --ascii
+python3 hardware_tests/hardware_test.py mic             # live level meter, or record 5 s and play back
+python3 hardware_tests/hardware_test.py oled            # OLED on I2C bus 1: text, then a live clock; --sh1106, --addr 0x3d
+python3 hardware_tests/hardware_test.py oled --text "hi" "line 2"   # write lines and leave them on screen
+python3 hardware_tests/hardware_test.py touch           # the three TTP223 pads
+bash scripts/sensors.sh                                 # all sensors at once + camera with live YOLO26n detection
 ```
 
-Details and a "what to look for" table: [`docs/sensor-tests.md`](docs/sensor-tests.md).
-
-**Test the camera** (shows the image in the terminal, works over SSH):
-
-```bash
-python3 hardware_tests/test_camera.py            # live view until Enter;  --snap for one picture, --save pic.jpg, --ascii
-```
-
-Details and troubleshooting: [`docs/camera.md`](docs/camera.md).
-
-**Test the microphone** (2-wire electret capsule, through a USB sound card: red → tip, black → sleeve):
-
-```bash
-python3 hardware_tests/test_microphone.py        # live level meter, or record 5 s and play back
-python3 hardware_tests/test_oled.py              # 0.96" OLED on GPIO 7 (SCK) / 8 (SDA): text, then a live clock (setup in the file)
-bash hardware_tests/screen_test.sh "hi" "line 2" # same OLED wiring (GPIO 7 SCK / 8 SDA, software I2C bus 3): one standalone file, copy it anywhere
-```
-
-`screen_test.sh` needs no other project files. The first time it runs, it adds the `i2c-gpio` overlay for bus 3 to `config.txt`, turns SPI off (GPIO 7/8 are the SPI chip-selects) and asks for a reboot. It also installs `luma.oled` in its own venv (`~/.venvs/oled-test`), and scans the bus. If the screen doesn't answer, it stops and prints a wiring checklist. Otherwise it draws a box and up to 5 lines of text. Settings: `OLED_DRIVER=sh1106` for 1.3" modules, `OLED_ADDR=0x3D`, `OLED_BUS=1` (the hardware I2C pins 3/5 instead).
-
-The Pi has no analog input, so the capsule can't go on GPIO. Details: [`docs/microphone.md`](docs/microphone.md).
+It works when copied to the Pi on its own: pins come from `robot_config.py` if it is next door, otherwise from
+the built-in copy. A test whose library or device is missing says how to fix it and returns to the menu.
+The microphone is a 2-wire electret capsule on a USB sound card (red → tip, black → sleeve); the Pi has no analog
+input. Details: [`docs/hardware-test.md`](docs/hardware-test.md), [`docs/sensor-tests.md`](docs/sensor-tests.md),
+[`docs/camera.md`](docs/camera.md), [`docs/microphone.md`](docs/microphone.md).
 
 **Run every feature in one go and watch the output** (one standalone file: copy just `test_e2e.py` to the Pi):
 
@@ -718,6 +733,19 @@ python3 legacy/server_multisonar.py [--sim]  # dashboard with Sonar array card +
 Each ECHO needs its own voltage divider. Full details (pin choice, mounting, safety rules, crosstalk, tests):
 [`docs/multisonar.md`](docs/multisonar.md).
 
+### Simplified one-file version
+
+`legacy/simplified_code.py` is everything above in one standalone file: a typed CLI (`forward 2`, `back`, `left`,
+`right`, `spin`, `stop`, `speed 0.6`, `status`), obstacle/edge stop, a rough obstacle map and a dashboard with
+the camera at `http://<pi>:8080`. Same pins.
+
+```bash
+python3 legacy/simplified_code.py          # on the Pi
+python3 legacy/simplified_code.py --sim    # laptop, simulated desk
+```
+
+Details: [`docs/simplified-code.md`](docs/simplified-code.md).
+
 ## Project layout
 
 ```text
@@ -737,21 +765,22 @@ run_prototype/
     vision/              camera, YOLO26n, tracking, adaptive detection, colour
     web/                 dashboard server and cards
   dashboard/             motor and sensor classes, safety rules, simulator, base dashboard
-  hardware_tests/        stand-alone sensor, camera and microphone tests
-  scripts/               setup, start, deploy, start on boot, hotspot
+  hardware_tests/        hardware_test.py: every sensor, camera, mic, OLED and touch test in one menu
+  scripts/               setup, start, start on boot, hotspot
   models/, data/, outputs/   created while running (git-ignored)
 docs/                    design notes
 tests/                   automated tests
-tools/                   navigate.py, robot_shell.py, sim_console.py (+ sim_scenarios/), test_e2e.py, run_tests.sh, run_benchmarks.sh
+tools/                   deploy.sh (laptop → Pi), navigate.py, robot_shell.py, sim_console.py (+ sim_scenarios/), test_e2e.py, run_tests.sh, run_benchmarks.sh
 benchmarks/              benchmarks.py, desk_bench/, requirements.txt, data/, results/
 digital_twin/            MATLAB digital twin
-legacy/                  3Nov-latest.py, 13Nov-multisonar.py, earlier dashboard servers
+legacy/                  3Nov-latest.py, 13Nov-multisonar.py, simplified_code.py, earlier dashboard servers
 ```
 
 ## Project docs
 
 | File | Contents |
 | --- | --- |
+| [`docs/run-prototype.md`](docs/run-prototype.md) | What is in `run_prototype/` (the only folder the Pi needs) and the short Pi quick start |
 | [`docs/companion.md`](docs/companion.md) | `main.py`: IMU, PID control, pick-up handling, gestures, OLED eyes, calibration, saved outputs |
 | [`docs/navigation.md`](docs/navigation.md) | Obstacle-to-obstacle navigation: adaptive planner selection, safety-aware routes, replanning, search, home, no-go zones, confidence, limits |
 | [`docs/full.md`](docs/full.md) | `main.py full`: wake word, routines, smart home, reader, local AI, games, hydration, briefings, faces, guard, Telegram, feature switches |
@@ -763,25 +792,31 @@ legacy/                  3Nov-latest.py, 13Nov-multisonar.py, earlier dashboard 
 | [`docs/assistant.md`](docs/assistant.md) | Voice assistant: STT, Claude brain + tools, JSON commands, chipmunk voice, remote, spoken warnings, live mapping |
 | [`docs/presence.md`](docs/presence.md) | Bluetooth LE phone: wake/sleep, find my phone (RSSI scan), lift detection → new map |
 | [`docs/install-on-raspberry-pi.md`](docs/install-on-raspberry-pi.md) | Step-by-step install on a Raspberry Pi: card, copy, setup, calibration, start, updates, troubleshooting |
-| [`docs/deploy.md`](docs/deploy.md) | Copy to the Pi (`deploy.sh`, clean-up), Wi-Fi hotspot, start on boot (systemd) |
+| [`docs/deploy.md`](docs/deploy.md) | Copy to the Pi (`deploy.sh`: only changed files + missing packages, clean-up), Wi-Fi hotspot, start on boot (systemd) |
+| [`docs/laptop-speaker.md`](docs/laptop-speaker.md) | The laptop as the robot's speaker until one is wired: `/speaker`, the Speaker box, `speaker_output` / `DESKBOT_SPEAKER` |
+| [`docs/error-recovery.md`](docs/error-recovery.md) | Errors explained instead of tracebacks: `.venv` auto-switch, missing-package install offer, menu keeps running, saved tracebacks |
 | [`docs/deskbot.md`](docs/deskbot.md) | The full app: commands, scripts, CLI, package layout, server, threads, tests, install |
 | [`docs/runtime.md`](docs/runtime.md) | Four processes on four cores: scheduling, shared memory, newest-command-wins, detect-every-N, face the user |
 | [`docs/benchmark.md`](docs/benchmark.md) | Benchmarks: lighting and tracking tests plus the open-source suite in `benchmarks.py` |
+| [`docs/slim-dependencies.md`](docs/slim-dependencies.md) | numpy instead of scipy, whisper.cpp instead of faster-whisper, Claude over HTTPS, what setup removes, sizes |
+| [`docs/ncnn-detector.md`](docs/ncnn-detector.md) | YOLO26n on NCNN without PyTorch: every step, ByteTrack in numpy, export in a temporary venv, sizes, verification |
 | [`docs/vision.md`](docs/vision.md) | Camera + YOLO26n (NCNN) + ByteTrack: research, latency design, model export, geometry, measurements |
 | [`docs/fusion.md`](docs/fusion.md) | Geometric / semantic / heatmap maps: maths, staleness, sensor fusion, tunables, verification |
 | [`docs/order.md`](docs/order.md) | Build order |
 | [`docs/components.md`](docs/components.md) | Parts list |
 | [`docs/pins.md`](docs/pins.md) | Full wiring |
-| [`docs/sensor-tests.md`](docs/sensor-tests.md) | `test_sensors.py` / `test_ultrasonic.py`: menu, live readings, what to look for |
-| [`docs/camera.md`](docs/camera.md) | `test_camera.py`: terminal image rendering, troubleshooting |
+| [`docs/hardware-test.md`](docs/hardware-test.md) | `hardware_test.py`: every hardware test in one file, design, standalone pins |
+| [`docs/sensor-tests.md`](docs/sensor-tests.md) | Sensor test: menu, live readings, what to look for |
+| [`docs/camera.md`](docs/camera.md) | Camera test: terminal image rendering, troubleshooting |
 | [`docs/robot-shell.md`](docs/robot-shell.md) | `robot_shell.py`: every command, units, find/goto/home maths, safety, inline display |
 | [`docs/e2e-test.md`](docs/e2e-test.md) | `test_e2e.py`: standalone run of every feature, what each shows, safety, sim |
-| [`docs/microphone.md`](docs/microphone.md) | Electret mic: how to connect it, `test_microphone.py`, troubleshooting |
+| [`docs/microphone.md`](docs/microphone.md) | Electret mic: how to connect it, the mic test, troubleshooting |
 | [`docs/config.md`](docs/config.md) | `robot_config.py`: pin config, who reads it, validation |
 | [`docs/pi.md`](docs/pi.md) | Pi setup, testing, GPIO notes |
 | [`docs/software-stack.md`](docs/software-stack.md) | Software used |
 | [`docs/mapping.md`](docs/mapping.md) | Occupancy grid mapping: design, maths, threading, API, tests |
 | [`docs/multisonar.md`](docs/multisonar.md) | Four ultrasonic sensors: wiring, safety rules, code, tests |
+| [`docs/simplified-code.md`](docs/simplified-code.md) | One-file CLI + dashboard: commands, safety, map, camera, errors |
 | [`docs/encoders.md`](docs/encoders.md) | Wheel encoders: wiring, calibration, odometry, stuck-wheel detection |
 | [`docs/chasis.md`](docs/chasis.md) | Chassis design notes |
 

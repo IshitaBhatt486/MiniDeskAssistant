@@ -5,7 +5,7 @@ the camera with YOLO26n/ByteTrack, the three fusion maps and the web dashboard, 
 second 15 Nov change it runs as **four processes, one per Pi core** ([runtime.md](runtime.md)).
 `--single-process` keeps the original single-process app. It also has an interactive CLI.
 
-The older entry points still work and are unchanged apart from one addition (`test_sensors.py` got a camera option):
+The older entry points still work and are unchanged apart from one addition (`test_sensors.py` got a camera option; since 20 Nov 2026 all hardware tests are in `hardware_tests/hardware_test.py`):
 `3Nov-latest.py`, `13Nov-multisonar.py`, `dashboard/server*.py`, `test_*.py`. `deskbot` **re-uses** their robot,
 safety and simulator classes instead of copying them.
 
@@ -15,7 +15,7 @@ safety and simulator classes instead of copying them.
 | --- | --- | --- |
 | Install everything (once) | `scripts/setup.sh` (`--no-assistant` skips the voice parts) | |
 | **Voice assistant + remote + presence** (17 Nov) | `scripts/assistant.sh` (`--sim` anywhere) | `python -m deskbot assistant` ([assistant.md](assistant.md)) |
-| Copy to the Pi / hotspot / start on boot | `scripts/deploy.sh`, `scripts/hotspot.sh`, `scripts/install-service.sh` | ([deploy.md](deploy.md)) |
+| Copy to the Pi / hotspot / start on boot | `tools/deploy.sh`, `scripts/hotspot.sh`, `scripts/install-service.sh` | ([deploy.md](deploy.md)) |
 | **Start the whole app** on the robot | `scripts/start.sh` (`--lan` for phone/laptop access) | `python -m deskbot run` |
 | Start in simulation (any computer) | `scripts/sim.sh` (`--camera webcam` for real YOLO on a webcam) | `python -m deskbot run --sim` |
 | **Run all tests** | `tools/run_tests.sh` (`-v` for names) | `python -m deskbot test` |
@@ -68,7 +68,7 @@ and the maps keep working from sonar + IR.
   preview in the terminal, and camera + detection in the terminal (boxes drawn, fps / inference / capture→result latency
   and tracked labels on a status line).
 - **System check** prints a table of ✓ / ! / ✗ with a "How to fix" column. It covers Python, the venv, the board, numpy,
-  OpenCV, Ultralytics, ncnn, lap (or its fallback), gpiozero, picamera2 + camera detection, the pin config, the NCNN model,
+  OpenCV, ncnn, gpiozero, picamera2 + camera detection, the pin config, the NCNN model,
   disk space and CPU temperature.
 - Libraries: **questionary** (arrow-key prompts on prompt_toolkit) + **rich** (tables, panels, live table). This was
   the commonly recommended modern pairing; InquirerPy hasn't had a release since 2022. `deskbot/ui.py` falls back to
@@ -146,8 +146,9 @@ The default multi-process layout is in [runtime.md](runtime.md) §2.
    Warns about a 32-bit OS.
 2. `.venv` created with **`--system-site-packages`**. picamera2/libcamera only exist as apt packages, so a plain venv
    couldn't see the camera.
-3. `pip install -r requirements.txt` (numpy, rich, questionary) and `requirements-vision.txt` (ultralytics ≥ 8.4,
-   ncnn, lap). `--no-vision` skips the vision packages; `--no-model` skips the export.
-4. `deskbot model export`, then `deskbot doctor`.
+3. `pip install -r requirements.txt` (numpy, rich, questionary) and `requirements-vision.txt` (ncnn,
+   opencv-python-headless; since 20 Nov 2026 no Ultralytics/PyTorch/lap, see [ncnn-detector.md](ncnn-detector.md)).
+   `--no-vision` skips the vision packages; `--no-model` skips the export.
+4. `scripts/export-model.sh` (exports in a temporary venv, then benchmarks), then `deskbot doctor`.
 
 On Windows (Git Bash), the scripts find `.venv/Scripts/python.exe` automatically (`scripts/_common.sh`).

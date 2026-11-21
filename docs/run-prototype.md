@@ -1,14 +1,16 @@
-# run_prototype
+# run_prototype/: what goes on the robot
 
-Everything the robot needs to run and be tested. This folder works on its own: copy only this folder to the Raspberry Pi.
-Documentation, unit tests, benchmarks, the digital twin and older scripts stay outside it.
+(This was `run_prototype/README.md` until 20 Nov 2026; it moved here so the folder holds only what the robot runs.)
+
+Everything the robot needs to run and be tested. The folder works on its own: copy only `run_prototype/` to the Raspberry Pi.
+Documentation, unit tests, benchmarks, the digital twin, older scripts and laptop-only tools (`tools/deploy.sh`) stay outside it.
 
 ## Put it on the Pi
 
-Full guide: `docs/install-on-raspberry-pi.md` in the repository. In short, use **64-bit Raspberry Pi OS** with SSH enabled. From the top of the repository, in Git Bash on the laptop:
+Full guide: [install-on-raspberry-pi.md](install-on-raspberry-pi.md). In short, use **64-bit Raspberry Pi OS** with SSH enabled. From the top of the repository, in Git Bash on the laptop:
 
 ```bash
-bash run_prototype/scripts/deploy.sh pi@<pi-address> --install
+bash tools/deploy.sh pi@<pi-address> --install
 ```
 
 This copies the folder to `~/deskbot`, then installs the packages and prepares the vision model. It needs internet on the Pi.
@@ -37,10 +39,10 @@ To try it on a computer without hardware: `python main.py start --sim`.
 | `calibrate_encoders.py` | Measures the wheel encoders |
 | `deskbot/` | The robot application |
 | `dashboard/` | Motor, sensor and safety code, and the base web dashboard |
-| `hardware_tests/` | Stand-alone sensor, camera and microphone tests |
-| `scripts/` | Install, start, deploy, start-on-boot and hotspot scripts |
+| `hardware_tests/` | `hardware_test.py`: every sensor, camera, mic, OLED and touch test in one menu |
+| `scripts/` | Install, start, start-on-boot and hotspot scripts (deploying is `tools/deploy.sh`, outside) |
 | `requirements*.txt` | Python packages |
-| `models/`, `data/`, `outputs/` | Created on the machine: vision models, settings and keys, saved results. Not copied by `deploy.sh` |
+| `models/`, `data/`, `outputs/` | Created on the machine: vision models, settings and keys, saved results. Not copied by `tools/deploy.sh` |
 
 ## Where the eyes appear
 

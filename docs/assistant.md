@@ -89,7 +89,7 @@ good night → yawn, wake up → ding). The `sounds` setting switches them off t
 
 ## 3. Brain (`brain.py`)
 
-**Claude** (official `anthropic` SDK, `client.beta.messages.create`):
+**Claude** (over plain HTTPS since 20 Nov 2026: `claude_http.py`, the same `client.beta.messages.create` call the `anthropic` SDK had, see [slim-dependencies.md](slim-dependencies.md)):
 
 | Setting | Value | Why |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ Wikipedia opensearch + REST summary, Official Joke API, open.er-api.com exchange
 | --- | --- | --- |
 | `groq` | `GROQ_API_KEY` (free tier) | ~0.3–0.6 s, Whisper large-v3-turbo |
 | `openai` | `OPENAI_API_KEY` | ~1 s, whisper-1 |
-| `local` | `pip install faster-whisper` | tiny.en int8 on the Pi 4: ~1–2 s; base.en ~3–5 s (first use downloads the model) |
+| `local` | `pip install pywhispercpp` (whisper.cpp, since 20 Nov 2026; faster-whisper still works if that's what is installed) | tiny.en, 8-bit (`tiny.en-q8_0`, 44 MB, downloaded once into `models/whisper/`). Not yet timed on the Pi; faster-whisper took ~1–2 s |
 | `windows` | Windows 10/11 (laptop simulation only, 20 Nov 2026) | ~2–3 s, offline `System.Speech` dictation via PowerShell; tried last, also allowed in strict `local`. See [sim-console.md](sim-console.md) |
 
 `auto` tries them in that order and falls back to the next one on an error. A clip under 0.3 s, over 30 s, or
@@ -134,7 +134,7 @@ Uploads are multipart, built with `urllib` (no extra packages).
 **Browser microphone** (`voice-recorder.js`): `getUserMedia` (echo cancellation, noise suppression, AGC) → a
 ScriptProcessor collects Float32 → box-filter downsample to 16 kHz → 16-bit WAV → `POST /api/assistant/audio`
 (`Content-Type: audio/wav`, ≤ 2 MB, stops at 25 s). WAV (not MediaRecorder's webm/mp4) because every backend,
-including faster-whisper, reads it without ffmpeg.
+including whisper.cpp (read with Python's `wave` module), reads it without ffmpeg.
 **Browsers only allow the mic on HTTPS or `localhost`**, so the server also serves the same pages on
 **`https://<robot>:8443`** with a self-signed certificate (`web/tls.py`, made once with `openssl`, SANs = hostname,
 hostname.local, the LAN IP and 10.42.0.1 (hotspot), regenerated when a new address appears). Accept the warning
@@ -223,8 +223,8 @@ detector) stops updates. On resume, odometry re-anchors instead of integrating t
   HTTPS on 8766, simulated lift (map paused → put down → `map_resets 1`, epoch 1), find my phone (12-heading scan,
   6.8 dB spread, arrived after 1 hop, final heading 212° vs. the true 210° bearing to the phone).
 - **Not run with a real API key, and not on the Pi** (espeak-ng/aplay, BlueZ, arecord, NetworkManager). On this
-  Windows laptop, Smart App Control blocked the SDK's `jiter` DLL the first time; it loaded on a later run. If it's
-  blocked, the robot reports "anthropic SDK can't load" and uses the offline brain.
+  Windows laptop, Smart App Control blocked the SDK's `jiter` DLL the first time. Since 20 Nov 2026 there is no SDK
+  (`claude_http.py` is standard library only), so this can't happen any more.
 
 ## 10. Troubleshooting
 
@@ -232,7 +232,7 @@ detector) stops updates. On resume, odometry re-anchors instead of integrating t
 | --- | --- |
 | "simple mode" / brain offline | `ANTHROPIC_API_KEY` in `secrets.env`, restart; the brain tag's tooltip says why |
 | Mic button shows the HTTPS notice | open `https://<robot>:8443` (accept the certificate) |
-| "I can't understand speech yet" | `GROQ_API_KEY` in `secrets.env`, or `.venv/bin/pip install faster-whisper` |
+| "I can't understand speech yet" | `GROQ_API_KEY` in `secrets.env`, or `.venv/bin/pip install pywhispercpp` |
 | No sound | `aplay -l`, set `DESKBOT_AUDIO_DEVICE=plughw:<card>,0` in `secrets.env`; `alsamixer` volume; user in `audio` group |
 | Voice tag "voice none" | `sudo apt install espeak-ng` |
 | Robot talks too much | turn off *Speak warnings* (they're still listed on the card) |
@@ -250,7 +250,7 @@ Claude and with the offline brain. See [`navigation.md`](navigation.md).
 | `local_commands` | on | Plain robot commands are parsed on the robot and never reach Claude. Anything that looks like a question or longer thought still goes to Claude |
 | `vision_on_demand` | on | A camera frame is attached only when the request needs eyes ("what colour is this?"). Detections always go as text |
 | `send_image` | on | Master switch for sending frames at all |
-| `stt` | `auto` | `auto` tries local `faster-whisper` first if installed, then Groq, then OpenAI |
+| `stt` | `auto` | `auto` tries local Whisper (whisper.cpp) first if installed, then Groq, then OpenAI |
 | `sounds` | on | Short musical motifs (`assistant/motifs.py`) for recognition, navigation, arrival, warning, confusion, low confidence, pick-up, embarrassment |
 
 Speech output is always generated on the device (Piper, eSpeak NG or Windows SAPI).

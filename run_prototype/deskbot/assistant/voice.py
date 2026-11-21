@@ -369,12 +369,17 @@ class Speaker:
         self.alerts = alerts
         self.tts, errors = find_tts()
         self.player = Player()
+        # 21 Nov 2026: until a speaker is wired, sound plays in the laptop's browser (assistant/laptop_speaker.py)
+        from .laptop_speaker import LaptopSpeaker
+        self.laptop = LaptopSpeaker()
+        self._pace = threading.Event()        # set by interrupt(): stops waiting out a clip the laptop plays
+        self._no_listener_warned = False
         self.engine = self.tts.name if self.tts else None
         self.error = None
         if self.tts is None:
             self.error = "no text-to-speech engine: sudo apt install espeak-ng"
             self._alert("tts", "No text-to-speech engine. Install espeak-ng to hear me.", detail="; ".join(errors))
-        elif self.player.name is None:
+        elif self.player.name is None and self.output() != "laptop":
             self.error = "no audio player: sudo apt install alsa-utils"
             self._alert("speaker", "No audio player found. Install alsa-utils.")
         self._q = queue.Queue()
@@ -389,6 +394,36 @@ class Speaker:
     def _alert(self, key, msg, detail=None):
         if self.alerts:
             self.alerts.warn(key, msg, speak=False, detail=detail)   # never spoken: the voice is what failed
+
+    def output(self):
+        """Where sound goes: laptop | robot | both. DESKBOT_SPEAKER overrides the saved setting."""
+        from .laptop_speaker import OUTPUTS, output_from_env
+        value = output_from_env() or self.settings.get("speaker_output", "laptop")
+        return value if value in OUTPUTS else "laptop"
+
+    def _emit(self, wav, kind, text=""):
+        """Play one clip on the configured output(s). Blocks for about the clip's length either way, so the
+        queue order, `speaking` and the queue limit behave the same on the laptop as on a real speaker."""
+        out = self.output()
+        if out in ("laptop", "both"):
+            _, duration = self.laptop.push(wav, kind, text)
+            self._check_listeners()
+            if out == "laptop":
+                self._pace.clear()
+                self._pace.wait(duration + 0.15)    # interrupt() ends this early
+                return
+        self.player.play(wav)
+
+    def _check_listeners(self):
+        if self.laptop.listeners() == 0:
+            if not self._no_listener_warned:
+                self._no_listener_warned = True
+                self._alert("laptop_speaker", "Sound goes to the laptop, but no browser is listening: open the dashboard "
+                            "(or /speaker) on the laptop and click 'Turn on' in the speaker box.")
+        elif self._no_listener_warned:
+            self._no_listener_warned = False
+            if self.alerts:
+                self.alerts.resolve("laptop_speaker", "The laptop is playing my sound.", speak=False)
 
     def say(self, text, kind="reply"):
         """Queue `text`. kind: reply | alert | chatter. Returns immediately."""
@@ -440,6 +475,8 @@ class Speaker:
                 self._q.get_nowait()
             except queue.Empty:
                 break
+        self.laptop.interrupt()
+        self._pace.set()
         self.player.interrupt()
 
     def _loop(self):
@@ -451,7 +488,7 @@ class Speaker:
             if kind == "motif":
                 try:
                     from .motifs import motif_wav
-                    self.player.play(motif_wav(text, float(self.settings.get("volume", 0.9))))
+                    self._emit(motif_wav(text, float(self.settings.get("volume", 0.9))), "motif", text)
                 except Exception as exc:
                     self.error = f"{type(exc).__name__}: {exc}"[:200]
                 continue
@@ -462,14 +499,15 @@ class Speaker:
                 wav = self.synth(text)
                 if kind == "reply":
                     self.last_wav, self.last_wav_id = wav, self.last_wav_id + 1
-                self.player.play(wav)
+                self._emit(wav, kind, text)
                 self.spoken += 1
                 if self.error and self.alerts:
                     self.alerts.resolve("speaker", "Speaker works again.", speak=False)
                 self.error = None
             except Exception as exc:
                 self.error = f"{type(exc).__name__}: {exc}"[:200]
-                self._alert("speaker", "Couldn't play speech on the speaker.", detail=self.error)
+                self._alert("speaker", "Couldn't play speech on the speaker. Set the speaker to 'laptop' in the dashboard "
+                            "to hear me in the browser instead.", detail=self.error)
                 time.sleep(1.0)   # don't spin on a broken device
             finally:
                 self.speaking = None
@@ -477,7 +515,8 @@ class Speaker:
     def status(self):
         return {"engine": self.engine, "player": self.player.name, "speaking": self.speaking,
                 "queued": self._q.qsize(), "spoken": self.spoken, "error": self.error,
-                "device": self.player.device, "last_wav_id": self.last_wav_id}
+                "device": self.player.device, "last_wav_id": self.last_wav_id,
+                "output": self.output(), "laptop": self.laptop.status()}
 
     def close(self):
         self._running = False

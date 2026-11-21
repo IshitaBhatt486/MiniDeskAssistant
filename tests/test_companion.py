@@ -587,7 +587,7 @@ class TestEntryPoint(unittest.TestCase):
         for script, _ in cli.PY_TOOLS.values():
             self.assertTrue((deskbot.ROOT / script).exists(), script)
         for script, _ in cli.SH_TOOLS.values():
-            self.assertTrue((deskbot.ROOT / "scripts" / script).exists(), script)
+            self.assertTrue((deskbot.ROOT / script).exists(), script)
 
     def test_commands_parse(self):
         p = cli.build_parser()

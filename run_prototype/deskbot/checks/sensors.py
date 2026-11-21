@@ -5,7 +5,7 @@ Interactive sensor tests (motors are never touched).
     python -m deskbot sensors camera     straight to one test
 
 Tests
-    ultrasonic front/left/right/rear, front/rear IR   one sensor at a time, like test_sensors.py
+    ultrasonic front/left/right/rear, front/rear IR   one sensor at a time, like hardware_test.py sensors
     all                                              every ultrasonic + IR in one live table
     camera                                           live camera image IN THE TERMINAL (works over SSH)
     detect                                           camera + YOLO26n (NCNN) + ByteTrack: boxes drawn into the
@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 import time
 
-from .. import ROOT  # noqa: F401  (puts the repo root on sys.path for robot_config / test_camera)
+from .. import ROOT  # noqa: F401  (puts run_prototype + hardware_tests on sys.path)
 from .. import ui
 from ..config import AppConfig
 
@@ -141,7 +141,7 @@ def _open_source(camera, cfg):
 
 def _terminal_loop(grab_text, width=0, ascii_mode=False):
     """Draw frames in place until Enter. grab_text() -> (bgr image, status line)."""
-    from test_camera import render  # repo root: the proven terminal renderer
+    from hardware_test import render  # hardware_tests/: the proven terminal renderer
 
     stop = ui.enter_to_stop()
     sys.stdout.write("\x1b[2J\x1b[?25l")
@@ -205,10 +205,10 @@ def detect_live(camera="pi", width=0, ascii_mode=False):
             from ..vision.detector import SimDetector
             det = SimDetector()
         else:
-            from ..vision.detector import YoloDetector
+            from ..vision.detector import make_detector
             from ..vision.model import resolve_model
-            ui.out("Loading YOLO26n (first run exports it to NCNN - about a minute)...")
-            det = YoloDetector(cfg.vision, resolve_model(cfg.vision, log=ui.out))
+            ui.out("Loading YOLO26n...")
+            det = make_detector(cfg.vision, resolve_model(cfg.vision, log=ui.out))
     except Exception as exc:
         ui.fail(f"Could not load the detector: {exc}")
         return

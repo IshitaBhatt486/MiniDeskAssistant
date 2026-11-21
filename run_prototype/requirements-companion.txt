@@ -1,7 +1,6 @@
 # Companion features (python main.py start): IMU, PID control, OLED eyes, saved figures.
 simple-pid>=2.0            # PID controllers
 ahrs>=0.4                  # Madgwick orientation filter
-scipy>=1.10                # sensor mounting rotation during calibration
 matplotlib>=3.7            # saved figures
 pillow>=10                 # drawing the eyes
 pytweening>=1.2            # easing between animation keyframes

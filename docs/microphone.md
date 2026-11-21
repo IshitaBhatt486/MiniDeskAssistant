@@ -1,4 +1,4 @@
-# Microphone: hardware + `test_microphone.py` (13 Nov 2026)
+# Microphone: hardware + the mic test (13 Nov 2026)
 
 ## The module: 2-wire electret capsule (red + black)
 
@@ -19,12 +19,12 @@ A microphone with just two wires is a bare **electret condenser capsule**:
 
 If the part has no "MIC" marking and has a magnet on the back, it may be a **speaker or buzzer** rather than a microphone.
 
-## `test_microphone.py`
+## Mic test: `hardware_test.py mic` (was `test_microphone.py` until 20 Nov 2026)
 
 Standalone. It only uses `arecord`/`aplay` from `alsa-utils`, which come preinstalled on Raspberry Pi OS.
 
 ```bash
-python3 hardware_tests/test_microphone.py
+python3 hardware_tests/hardware_test.py mic
 ```
 
 1. Lists the capture devices (parsed from `arecord -l`) and picks the only one automatically, or asks you to choose.

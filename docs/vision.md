@@ -7,7 +7,8 @@ per-call cost. The detections feed the semantic map and the confidence heatmap (
 | --- | --- |
 | Code | `deskbot/vision/`: `camera.py` (sources + latest-frame grabber), `detector.py` (YOLO + ByteTrack, sim detector), `pipeline.py` (threads, stats, JPEG), `geometry.py` (pixel ↔ desk), `model.py` (download / NCNN export / benchmark), `bytetrack.yaml`, `lap_compat.py` |
 | Config | `deskbot/config.py` → `CameraConfig`, `VisionConfig` |
-| Install | `scripts/setup.sh` (system camera packages, venv, Ultralytics + NCNN, model export) |
+| Install | `scripts/setup.sh` (system camera packages, venv, NCNN + OpenCV, model export in a temporary venv) |
+| Since 20 Nov 2026 | the robot runs NCNN directly with ByteTrack in numpy, no PyTorch/Ultralytics: [ncnn-detector.md](ncnn-detector.md). The Ultralytics notes below still describe the export and the laptop's `.pt` fallback |
 | Try it | `scripts/sensors.sh detect` (live in the terminal) · `scripts/start.sh` (dashboard Camera card) · `scripts/export-model.sh` (export + benchmark) |
 
 ---
@@ -123,6 +124,9 @@ ready, and the Windows torch/Media Foundation deadlock is avoided.
 
 ## 7. ByteTrack's `lap` dependency (`lap_compat.py`)
 
+Since 20 Nov 2026 `lap` isn't installed at all: `bytetrack.py` always uses `lap_compat.lapjv()` (numpy Hungarian since 20 Nov 2026, scipy before that).
+What follows is how it started, as a fallback for Ultralytics' tracker.
+
 ByteTrack's matching uses the compiled `lap` package. On machines where it can't load (Windows **Smart App Control**
 blocks unsigned DLLs: *"An Application Control policy has blocked this file"*), `install()` registers a stand-in `lap`
 module. Its `lapjv(cost, extend_cost=True, cost_limit=L)` gives the **same assignment**: the problem is padded so that
@@ -157,4 +161,4 @@ exhaustive search on 30 random matrices. On the Pi the real `lap` loads and the 
 | Low fps / high latency | `scripts/doctor.sh` CPU temperature (the Pi 4 throttles at 80 °C, so add a heatsink or fan); keep `imgsz = 320`; lower `threads` if the robot's controls lag |
 | Objects in the wrong place on the map | measure `CameraConfig.height_m` and `pitch_deg` ([fusion.md §7](fusion.md)) |
 | Boxes upside down | set `CameraConfig.rotate_180 = True` |
-| Startup takes ~30 s on Windows | importing PyTorch is that slow on the laptop. Normal; it's a one-off per start |
+| Startup takes ~30 s on Windows | importing PyTorch (the laptop's `.pt` fallback) is that slow. The Pi doesn't import PyTorch |

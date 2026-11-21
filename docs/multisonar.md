@@ -133,7 +133,7 @@ default on Raspberry Pi OS Bookworm).
 | `13Nov-multisonar.py` | syntax-checked only. gpiozero isn't installed on the dev laptop, so **run it on the Pi**: use option 5 to check all four readings before driving |
 
 **Not tested yet on real hardware.** First run on the Pi:
-0. `python3 hardware_tests/test_sensors.py` (or the standalone `test_ultrasonic.py`): pick each sensor in turn and watch its live readings
+0. `python3 hardware_tests/hardware_test.py sensors` (standalone: copy just that file to the Pi): pick each sensor in turn and watch its live readings
    while moving a hand in front of it. See `sensor-tests.md`.
 1. `python3 legacy/13Nov-multisonar.py`, option 5: wave a hand in front of each sensor and check the right name changes.
 2. If two names are swapped, the TRIG/ECHO wires are swapped between sensors. Fix the wiring or `SONARS` in `robot_config.py`.

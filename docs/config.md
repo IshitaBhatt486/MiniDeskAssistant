@@ -28,7 +28,7 @@ The motor dicts use the same key names as gpiozero's `Motor(...)`, so the code c
 | `dashboard/multisonar.py` | pins from `cfg.SONARS`, merged with its own `MOUNTS` (mounting position and angle, which are geometry, not wiring) |
 | every dashboard server | indirectly, via `robot.py` / `multisonar.py` |
 | dashboard page | the Wiring card gets `physical_pins` from `/api/state`, so it no longer has its own copy of the table |
-| `test_ultrasonic.py` | **does not read it**: standalone on purpose (single file to copy to the Pi). It has its own copy of the sonar pins, so update both when rewiring |
+| `hardware_tests/hardware_test.py` | reads it when it is one folder up; copied to the Pi alone it uses its own `FALLBACK_PINS` (sonars, IR, touch), so update both when rewiring (`tests/test_hardware_test.py` checks they match) |
 | `3Nov-latest.py` | **does not read it**. Kept byte-for-byte as the known-working reference. Its hard-coded pins match the config's motor, front sonar and IR values; if you rewire those, update that script by hand or use `13Nov-multisonar.py` |
 
 ## Why a Python file (not JSON/YAML/TOML)

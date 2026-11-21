@@ -1,4 +1,5 @@
-# Object detection: YOLO26n (Ultralytics) exported to NCNN, tracked with ByteTrack. Runs locally, no API costs.
-ultralytics>=8.4.0   # YOLO26 support; pulls in PyTorch + OpenCV (needed for the one-time NCNN export and pre/post-processing)
-ncnn>=1.0.20240410   # NCNN runtime - fastest CPU inference on Raspberry Pi ARM cores
-lap>=0.5.12          # linear assignment for ByteTrack (falls back to scipy if the compiled module can't load)
+# Object detection: YOLO26n exported to NCNN, run by deskbot/vision/ncnn_detector.py and tracked with our own
+# ByteTrack (deskbot/vision/bytetrack.py, numpy only). Runs locally, no API costs. No PyTorch / Ultralytics on the robot:
+# scripts/export-model.sh makes the NCNN model once in a temporary venv and deletes it again.
+ncnn>=1.0.20240410        # NCNN runtime - fastest CPU inference on Raspberry Pi ARM cores
+opencv-python-headless>=4.8   # resize/letterbox, camera, faces (no GUI: the robot never opens a window)

@@ -1,8 +1,8 @@
 """
 The brain: (what the user said + what the camera sees + robot state + personality) -> reply JSON.
 
-    ClaudeBrain   Claude (default claude-haiku-5-5, effort "low" for voice-assistant latency) through the
-                  official `anthropic` SDK. Tool use (free web APIs in tools.py) in a manual loop of at
+    ClaudeBrain   Claude (default claude-haiku-5-5, effort "low" for voice-assistant latency) over plain HTTPS
+                  (claude_http.py, 20 Nov 2026; was the `anthropic` SDK, same calls). Tool use (free web APIs in tools.py) in a manual loop of at
                   most MAX_TOOL_ROUNDS rounds; the final answer is forced into commands.RESPONSE_SCHEMA
                   with structured outputs (output_config.format), so it always parses.
                   Server-side refusal fallback ("fallbacks": "default") is used on models that support it;
@@ -83,12 +83,9 @@ class ClaudeBrain:
         self.load_error = None
         self.extra_tools = {}          # name -> (spec, fn(args) -> (text, is_error)); see Brain.add_tool
         self.extra_prompt = ""
-        try:
-            import anthropic  # noqa: F401  (ImportError / DLL blocked -> offline brain)
-            self._anthropic = anthropic
-        except Exception as exc:   # e.g. Windows Smart App Control blocking jiter's DLL
-            self._anthropic = None
-            self.load_error = f"anthropic SDK can't load: {type(exc).__name__}: {exc}"[:200]
+        from . import claude_http  # standard library only: always loads (no SDK, no compiled DLL)
+
+        self._anthropic = claude_http
 
     def available(self):
         return self._anthropic is not None and bool(
@@ -96,7 +93,7 @@ class ClaudeBrain:
 
     def why_unavailable(self):
         if self._anthropic is None:
-            return self.load_error or "pip install anthropic"
+            return self.load_error or "Claude client missing"
         return "no ANTHROPIC_API_KEY in secrets.env"
 
     def client(self):
