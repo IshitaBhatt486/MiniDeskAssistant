@@ -6,7 +6,7 @@ assistant and a web dashboard. **`run_prototype/main.py`** runs all of it. The o
 ## Repository layout
 
 ```text
-run_prototype/   everything needed to run and test the robot; the only folder the Pi needs
+run_prototype/   Holds all the material to test and run; the only folder the Pi needs
 docs/            design notes and build documentation
 tests/           automated tests
 tools/           navigation demo, interactive shell, simulation test console, end-to-end test, test runners
