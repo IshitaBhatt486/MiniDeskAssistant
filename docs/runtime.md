@@ -31,7 +31,7 @@ each core of the Raspberry Pi 4. The earlier one-process version is still there:
 | Core | Process | Scheduling | Loop | Owns |
 | --- | --- | --- | --- | --- |
 | 0 | `motor` (`procs.motor_main`) | `SCHED_FIFO 50` → fallback `nice -10` → `nice 0` | wakes on a new command or a sensor sample (≤ 20 ms timeout) | motor pins (gpiozero `Motor` ×2) |
-| 1 | `sensors` (`procs.sensors_main`) | `SCHED_FIFO 40` → `nice -5` → `nice 0` | 50 Hz | 4 × `DistanceSensor`, 2 × IR |
+| 1 | `sensors` (`procs.sensors_main`) | `SCHED_FIFO 40` → `nice -5` → `nice 0` | 50 Hz | `SonarScanner` (the 4 sonars one at a time, since 24 Nov 2026), 2 × IR |
 | 2 | `camera` (`procs.camera_main`) | `nice 5`, NCNN 1 thread | every camera frame (30 fps) | camera, YOLO26n, ByteTrack, optical flow |
 | 3 | `nav` (the parent, `app.run_runtime`) | `nice 10` | mapper 10 Hz, behaviour 5 Hz, HTTP on demand | maps, behaviour, dashboard |
 

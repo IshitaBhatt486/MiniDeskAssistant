@@ -101,8 +101,10 @@ gpiozero's `DistanceSensor` runs its own background thread for each sensor that 
 mostly between sensors facing roughly the same way. With the four sensors 90° apart this is rare,
 but if you see random short readings:
 1. tilt the sensors slightly apart or add foam/tube shrouds, or
-2. switch to sequential triggering (fire one sensor at a time, about 60 ms apart). That needs a custom
-   reader in place of `DistanceSensor`, not done yet.
+2. switch to sequential triggering (fire one sensor at a time). **Done on 24 Nov 2026 for `main.py`'s runtime**
+   (`run_prototype/deskbot/runtime/sonar_scanner.py`, see [run-prototype-fixes.md](run-prototype-fixes.md)),
+   after it was measured on the robot: the right sonar read 16 cm instead of 200 cm 11 times in 4 s. The older
+   dashboard servers described in this file still use `DistanceSensor`.
 
 For more accurate timing, gpiozero recommends a hardware pin factory (`sudo apt install python3-lgpio`, which is the
 default on Raspberry Pi OS Bookworm).
