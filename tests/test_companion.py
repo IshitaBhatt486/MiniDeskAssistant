@@ -359,6 +359,16 @@ class TestLift(unittest.TestCase):
         self.feed(1.0, 100, gyro_norm=2.0, accel_err=4.0)       # both IR sensors still see the desk
         self.assertFalse(self.lift.lifted)
 
+    def test_a_short_lift_resumes_instead_of_resetting(self):
+        # 24 Nov 2026: time in the air ends at touch-down, not after the 1 s put-down confirmation; before, every
+        # lift counted as >= 1 s (= reset_after_s), so even a blip reset the map (legacy/simplified_code.py)
+        t = self.feed(0.5, 100, roll=math.radians(40))          # lifted at ~100.3
+        self.assertTrue(self.lift.lifted)
+        self.feed(1.3, t)                                        # put straight back down
+        self.assertFalse(self.lift.lifted)
+        self.assertEqual(self.mapper.resets, 0)
+        self.assertEqual(self.order, [])                         # no on_place actions
+
     def test_put_down_runs_the_configured_actions_in_order(self):
         t = self.feed(0.5, 100, roll=math.radians(40))
         self.feed(1.3, t + 2)

@@ -82,6 +82,7 @@ class ImuLiftDetector(LiftDetector):
 
     def _lifted(self, now, reason):
         self.lifted, self.lifted_at, self.trigger = True, now, reason
+        self.left_at = min(self.timers.values(), default=now)   # when the lift condition began
         self.timers.clear()
         self.lifts += 1
         if self.executor:
@@ -94,7 +95,11 @@ class ImuLiftDetector(LiftDetector):
             self.on_change(True)
 
     def _placed(self, now):
-        up_for = now - self.lifted_at
+        # time off the desk: from when the lift condition began to touch-down (the start of the put-down timer).
+        # It was measured from the lift CONFIRMATION to the END of the place_confirm_s confirmation, so every lift
+        # counted >= place_confirm_s = reset_after_s and even a blip reset the map (24 Nov 2026, found in
+        # legacy/simplified_code.py)
+        up_for = self.timers.get("place", now) - self.left_at
         self.lifted = False
         self.timers.clear()
         self.alerts.resolve("lift-stuck")
