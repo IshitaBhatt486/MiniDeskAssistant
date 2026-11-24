@@ -270,3 +270,13 @@ DEFAULT_OBJECT_RADIUS = 0.06
 
 def object_radius(label):
     return OBJECT_RADIUS.get(label, DEFAULT_OBJECT_RADIUS)
+
+
+# Long, thin things are seen side-on, so their centre is only half their DEPTH behind the front face the camera
+# and sonar see; OBJECT_RADIUS is half their length (the footprint). Used only to locate a sighting (24 Nov 2026:
+# with the radius a keyboard was placed ~10 cm too far, found in legacy/simplified_code.py).
+OBJECT_DEPTH = {"keyboard": 0.05, "tv": 0.05, "remote": 0.02, "scissors": 0.03, "laptop": 0.12}
+
+
+def object_depth(label):
+    return OBJECT_DEPTH.get(label, object_radius(label))
