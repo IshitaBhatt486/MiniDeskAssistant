@@ -10,7 +10,8 @@ the dashboard's "add a task" box, the offline brain, and as a fallback when the 
 Understood (case-insensitive, anywhere in the sentence):
     in 20 minutes / in an hour / in 2 hours / in half an hour / in 3 days / in a week
     today, tonight (20:00), tomorrow, the day after tomorrow, (on|by|this|next) monday..sunday
-    at 5, at 5pm, at 5:30 pm, at 17:30, by 9 am, noon, midnight
+    at 5, at 5pm, at 5:30 pm, at 17:30, by 9 am, noon, midnight   ("at 9 call dad": a bare hour may be followed
+    by more words since 24 Nov 2026; it used to need to end the sentence)
     this morning / in the morning (09:00), afternoon (14:00), evening (18:00), end of (the) day (18:00)
 
 Rules:
@@ -38,7 +39,7 @@ _DAY = re.compile(r"\b(?:(?:on|by|before|this|until|till)\s+)?(?:(next)\s+)?(the
                   + "|".join(WEEKDAYS) + r")\b")
 _CLOCK = re.compile(r"\b(?:(?:at|by|before|around|until|till)\s+)?(\d{1,2})(?::|\.)(\d{2})\s*(am|pm|a\.m\.|p\.m\.)?(?!\w)"
                     r"|\b(?:(?:at|by|before|around|until|till)\s+)?(\d{1,2})\s*(am|pm|a\.m\.|p\.m\.)(?!\w)"
-                    r"|\b(?:at|by|before|around|until|till)\s+(\d{1,2})(?!\s*(?:minutes?|mins?|hours?|days?|%|\w))\b")
+                    r"|\b(?:at|by|before|around|until|till)\s+(\d{1,2})(?![\d:.])(?!\s*(?:minutes?|mins?|hours?|hrs?|days?|weeks?|%|percent|\d)\b)")
 _NAMED = re.compile(r"\b(?:(?:at|by|before|around)\s+)?(noon|midday|midnight)\b"
                     r"|\b(?:(?:this|in the|by the|tomorrow|by)\s+)?(morning|afternoon|evening|night)\b"
                     r"|\b(?:by\s+)?(?:the\s+)?end of (?:the )?day\b|\beod\b")
@@ -68,7 +69,8 @@ def parse_due(text, now=None):
     m = _REL.search(low)
     if m:
         unit = m.group(2).rstrip("s") if m.group(2) not in ("mins", "hrs") else m.group(2)
-        due = now + timedelta(seconds=_amount(m.group(1)) * UNITS[unit])
+        # + 30 s: round to the nearest minute (cutting the seconds made "in 2 minutes" read back as "in 1 minute")
+        due = now + timedelta(seconds=_amount(m.group(1)) * UNITS[unit] + 30)
         return due.replace(second=0, microsecond=0), _tidy(_cut(rest, m))
 
     day, hm, explicit_day = None, None, False
