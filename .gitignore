@@ -19,4 +19,10 @@ robot_shell_settings*.json
 data/
 secrets.env
 .env
-legacy/
+# legacy/: old scripts stay local; only the one-file simplified program is tracked (24 Nov 2026).
+# Its runtime files (tls/ certificate + key, *.json data, photos/, errors.log, backups) stay ignored.
+legacy/*
+!legacy/simplified_code.py
+
+# private presentation notes
+internal-docs/
