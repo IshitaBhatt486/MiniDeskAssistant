@@ -41,6 +41,7 @@ import numpy as np
 
 MAX_SECONDS = 30
 SILENCE_DBFS = -50.0
+HALLUCINATIONS = {"thank you", "thanks for watching", "thank you for watching", "you", "bye"}
 
 
 class SttError(Exception):
@@ -316,11 +317,16 @@ class Transcriber:
             try:
                 text = self.backends[name].transcribe(wav)
                 self.last = {"backend": name, "ms": round((time.perf_counter() - t0) * 1000), "text": text}
+                # Whisper invents these on silence or noise that got past the level check (24 Nov 2026)
+                if len((text or "").strip()) < 2 or (text or "").lower().strip(" .!") in HALLUCINATIONS:
+                    raise SttError("I didn't catch that. Try again a little closer to the microphone.")
                 if errors and self.alerts:
                     self.alerts.warn("stt", f"Speech to text fell back to {name}.", speak=False, detail="; ".join(errors))
                 elif self.alerts:
                     self.alerts.resolve("stt")
                 return text
+            except SttError:
+                raise                        # "didn't catch that": a real answer, not a broken backend
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
         self.last = {"error": "; ".join(errors)}
