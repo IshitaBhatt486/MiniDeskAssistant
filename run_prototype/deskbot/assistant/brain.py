@@ -198,6 +198,10 @@ LOCAL_START = re.compile(r"^(?:(?:hey|ok|okay)\s+)?(?:(?:please|can you|could yo
                          r"(?:stop|halt|freeze|turn|rotate|spin|dance|go|drive|move|head|travel|navigate|roll|return|come|"
                          r"reverse|back up|look around|follow me|face me|look at me|wake up|good night|good morning|"
                          r"find my phone|forget the map|reset the map|this is home|mark|set home|speed up|slow down)\b")
+# OfflineBrain (no AI): movement words only count at the start of a command, never inside a question
+OFFLINE_START = re.compile(LOCAL_START.pattern[:-3] + r"|do\s+(?:a\s+)?(?:little\s+)?(?:dance|spin)|keep looking at me|"
+                           r"keep facing me|forward|backwards?|faster|slower|let'?s)\b")
+OFFLINE_QUESTION = re.compile(r"\?|\b(?:what|why|how|who|when|where|which|whose|is it|are you|do you|does it)\b")
 NEEDS_THOUGHT = re.compile(r"\?|\b(what|why|how|who|when|where|tell|joke|weather|and|but|because|if)\b")
 NEEDS_EYES = re.compile(r"\b(look(s|ing)? like|see|seeing|show|colou?r|read|describe|holding|wearing|in front of you|"
                         r"what is this|what's this|what is that|what's that|how many|camera|picture|photo)\b")
@@ -298,33 +302,39 @@ class OfflineBrain:
             return reply("Starting a fresh map.", "neutral", [cmd("reset_map")])
         if re.search(r"\b(this is|here is|mark|set|save)\b.{0,16}\bhome\b", t):
             return reply("This is home.", "happy", [cmd("set_home")])
-        route = parse_navigation(t.strip())
-        if route:
-            start, goal = route
-            say = f"Going from {start} to {goal}." if start else f"Going to {goal}."
-            return reply(say, "curious", [{"action": "navigate", "amount": 0, "from_object": start, "to_object": goal}])
-        if "spin" in t:
-            return reply("Wheee!", "excited", [cmd("spin", _number(t, 1))], "whoosh")
-        if "dance" in t:
-            return reply("Dance time!", "excited", [cmd("dance")])
-        if "look around" in t:
-            return reply("Having a look around.", "curious", [cmd("look_around")])
-        if re.search(r"\b(follow me|keep looking at me)\b", t):
-            return reply("I'll keep my eyes on you.", "happy", [cmd("follow_user_on")])
-        if re.search(r"\b(look at me|face me|turn to me)\b", t):
-            return reply("Hi there!", "happy", [cmd("face_user")])
-        if re.search(r"\b(turn|rotate)\b.*\bleft\b|\bleft\b", t):
-            return reply("Turning left.", "neutral", [cmd("turn_left", _number(t, 90))])
-        if re.search(r"\b(turn|rotate)\b.*\bright\b|\bright\b", t):
-            return reply("Turning right.", "neutral", [cmd("turn_right", _number(t, 90))])
-        if re.search(r"\b(back|backward|backwards|reverse)\b", t):
-            return reply("Backing up.", "neutral", [cmd("move_backward", _number(t, 1))])
-        if re.search(r"\b(forward|ahead|come here|come closer)\b", t):
-            return reply("Coming!", "happy", [cmd("move_forward", _number(t, 1))])
-        if re.search(r"\b(faster|speed up)\b", t):
-            return reply("Speeding up.", "excited", [cmd("set_speed", 80)])
-        if re.search(r"\b(slower|slow down)\b", t):
-            return reply("Slowing down.", "neutral", [cmd("set_speed", 35)])
+        # 24 Nov 2026: movement only for sentences that START with a command and are not questions. These rules
+        # matched words anywhere, so with no AI key "that's right" turned right, "I'll be back" reversed and
+        # "what's ahead?" drove forward (the same bug was found and fixed in legacy/simplified_code.py).
+        bare = re.sub(rf"^(?:(?:hey|hi|ok|okay)\s+)?(?:{re.escape(name.lower())}\b)?[\s,]*", "", t.strip())
+        bare = re.sub(r"^(?:(?:please|can|could|would|will)\s+(?:you\s+|we\s+)?)+", "", bare)   # polite openers
+        if OFFLINE_START.match(bare) and not OFFLINE_QUESTION.search(t):
+            route = parse_navigation(t.strip())
+            if route:
+                start, goal = route
+                say = f"Going from {start} to {goal}." if start else f"Going to {goal}."
+                return reply(say, "curious", [{"action": "navigate", "amount": 0, "from_object": start, "to_object": goal}])
+            if "spin" in t:
+                return reply("Wheee!", "excited", [cmd("spin", _number(t, 1))], "whoosh")
+            if "dance" in t:
+                return reply("Dance time!", "excited", [cmd("dance")])
+            if "look around" in t:
+                return reply("Having a look around.", "curious", [cmd("look_around")])
+            if re.search(r"\b(follow me|keep looking at me)\b", t):
+                return reply("I'll keep my eyes on you.", "happy", [cmd("follow_user_on")])
+            if re.search(r"\b(look at me|face me|turn to me)\b", t):
+                return reply("Hi there!", "happy", [cmd("face_user")])
+            if re.search(r"\b(turn|rotate)\b.*\bleft\b|\bleft\b", t):
+                return reply("Turning left.", "neutral", [cmd("turn_left", _number(t, 90))])
+            if re.search(r"\b(turn|rotate)\b.*\bright\b|\bright\b", t):
+                return reply("Turning right.", "neutral", [cmd("turn_right", _number(t, 90))])
+            if re.search(r"\b(back|backward|backwards|reverse)\b", t):
+                return reply("Backing up.", "neutral", [cmd("move_backward", _number(t, 1))])
+            if re.search(r"\b(forward|ahead|come here|come closer)\b", t):
+                return reply("Coming!", "happy", [cmd("move_forward", _number(t, 1))])
+            if re.search(r"\b(faster|speed up)\b", t):
+                return reply("Speeding up.", "excited", [cmd("set_speed", 80)])
+            if re.search(r"\b(slower|slow down)\b", t):
+                return reply("Slowing down.", "neutral", [cmd("set_speed", 35)])
 
         if "weather" in t or "temperature" in t:
             m = re.search(r"\bin ([a-z .'-]+?)(?:\?| today| tomorrow| now|$| \b)", t.strip())
