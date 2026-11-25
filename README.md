@@ -742,7 +742,8 @@ the IMU, lift detection, the touch pad, object detection, photos, an assistant (
 fallback; GROQ_API_KEY in `secrets.env`; microphone on `https://<pi>:8443`), objects on the map (`where is the cup`),
 drive by distance (`forward 30cm`), `go to the cup`, tasks with reminders (`remind me in 20 minutes to stretch`),
 a focus timer (`focus 25`), `face me` + a greeter, gestures from the laptop camera, rock paper scissors, Bluetooth phone
-presence, a noise filter and fused confidence map, free web APIs (weather, Wikipedia, jokes, currency), an ideas notebook, and a
+presence, a noise filter and fused confidence map, free web APIs (weather, Wikipedia, jokes, currency), an ideas notebook, sound effects and
+`dance` (a random song played by the laptop, danced to in pre-coded routines on the beat), and a
 drag-and-drop dashboard with a Notes card and a presentation mode; a failing feature is skipped and noted, never a crash.
 
 ```bash

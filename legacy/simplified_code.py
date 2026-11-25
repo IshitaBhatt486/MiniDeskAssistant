@@ -71,6 +71,9 @@ Type commands at the "robot>" prompt (also accepted by the dashboard):
                          then a break;  focus  how it's going;  focus stop
     oled [eyes|status|off]   what the OLED shows (default eyes: they react to what the robot does)
     oled <text>          show text for 6 s (also 'oled say <text>') (\n = new line);  oled ip  shows the dashboard address
+    dance [song]         play a random song (or that one) and dance to its beat in pre-coded routines;  dance stop
+    songs                the songs it can dance to (built in, plus music files you put in songs/)
+    sounds [on|off]      sound effects (played by the dashboard browser);  sound <name>  plays one
     help / quit
 
 Safety: every move is checked 50 times a second. It does not start, and it stops, when
@@ -313,7 +316,7 @@ AI_MAX_COMMANDS = 6         # robot commands per reply
 AI_MAX_DRIVE_S = 3.0        # longest forward/back the AI may ask for (about 36 cm at speed 0.5)
 AI_MAX_DRIVE_M = 0.5        # ... or by distance
 AI_COMMANDS = ("forward", "back", "left", "right", "turn", "spin", "stop", "photo", "remind", "todo", "done",
-               "focus", "face", "rps")
+               "focus", "face", "rps", "dance")
 AI_MOODS = ("happy", "sad", "angry", "scared", "focused", "sleepy", "normal")   # = the OLED faces
 # Faces + focus timer (24 Nov 2026, run_prototype hub/focus.py)
 MODEL_DIRS = [Path.home() / "deskbot" / "models", _HERE.parent / "run_prototype" / "models", _HERE / "models"]
@@ -2074,6 +2077,8 @@ class Robot:
         self.rps = None                      # set by main() (RockPaperScissors)
         self.apis = None                     # set by main() (WebApis)
         self.ideas = None                    # set by main() (Ideas)
+        self.sounds = None                   # set by main() (Sounds: effects played by the dashboard browser)
+        self.dance = None                    # set by main() (Dance)
         self.last_user_cmd = -1e9            # time of the last command from a person ('keep facing me' waits)
         self.user_cmds = 0                   # commands typed/clicked by a person: an AI command plan stops on one
         self.ticks = self.late_ticks = 0     # control loop ticks / times it fell a whole tick behind
@@ -2456,10 +2461,12 @@ class Robot:
                 self.late_ticks += 1
             sleep_until(next_tick, self._stop)
 
-    def announce(self, text, mood="happy"):
-        """Something the robot says on its own (a reminder): Activity log, OLED text + face, and the assistant
-        chat, so a dashboard with 'Speak replies' ticked reads it out."""
+    def announce(self, text, mood="happy", sound=None):
+        """Something the robot says on its own (a reminder): Activity log, OLED text + face, the assistant
+        chat (so a dashboard with 'Speak replies' ticked reads it out) and a sound effect (the mood's, or `sound`)."""
         self.event(f"Says: {text}")
+        if self.sounds is not None:
+            self.sounds.play(sound) if sound else self.sounds.mood(mood)
         if self.oled is not None:
             self.oled.mood(mood, 6.0)
             self.oled.say(text, 10.0)
@@ -2577,6 +2584,7 @@ class Robot:
             "rps": self.rps.info() if self.rps else None,
             "apis": self.apis.info() if self.apis else None,
             "ideas": self.ideas.info() if self.ideas else None,
+            "sounds": self.sounds.info() if self.sounds else None,
             "accounts": accounts_info(self),
             "vision": self.detector.info() if self.detector else None,
         })
@@ -3063,6 +3071,8 @@ class Robot:
                     return f"Could NOT take a photo: {exc}"
                 h, w = self.camera.frame.shape[:2]
                 self.event(f"Photo saved: {path.name}")
+                if self.sounds is not None:
+                    self.sounds.play("shutter")
                 return f"Photo saved: {path} ({w}x{h})"
             if cmd in ("see", "look", "what"):        # 'what do you see' arrives as cmd 'what'
                 det = self.detector
@@ -3112,6 +3122,8 @@ class Robot:
                 src.lifted = (args[1] != "off") if len(args) > 1 else not src.lifted
                 return f"Simulated: robot {'lifted (tilted 35 deg)' if src.lifted else 'put back down flat'}"
             if cmd == "stop":
+                if self.dance is not None and self.dance.active():    # also from the AI ("stop dancing")
+                    self.dance.stop()
                 return self.stop()
             if cmd == "speed":
                 if not args:
@@ -3228,6 +3240,31 @@ class Robot:
                         return "Use: gesture map <Name> <action>"
                     return g.set(words[2], " ".join(words[3:]).lower())
                 return g.handle(words[1])
+            if cmd in ("dance", "boogie", "songs"):
+                d = self.dance
+                if d is None:
+                    return "Dancing is not available (see the Notes card)"
+                if cmd == "songs" or args[:1] in (["list"], ["songs"]):
+                    return "Songs:\n" + "\n".join(
+                        f"  {s['title']} ({s['bpm']:.0f} bpm, {s['seconds']:.0f} s{', file' if s['kind'] == 'file' else ''})"
+                        for s in d.songs()) + "\n  (add .mp3/.ogg/.wav files to songs/ next to this script)"
+                if args[:1] in (["stop"], ["off"], ["end"]):
+                    return d.stop()
+                if args[:1] in (["status"], ["info"]):
+                    return d.line()
+                want = " ".join(text.strip().split()[1:]).removeprefix("to ").strip()
+                return d.start("" if want.lower() in ("", "random") else want)
+            if cmd in ("sounds", "sound", "beep", "sfx"):
+                sd = self.sounds
+                if sd is None:
+                    return "Sound effects are not available (see the Notes card)"
+                if args[:1] in (["on"], ["off"]):
+                    return sd.set(args[0] == "on")
+                if args:
+                    return sd.play(args[0])
+                i = sd.info()
+                return (f"Sound effects {'on' if i['on'] else 'off'} (played by the dashboard page, on the laptop)\n"
+                        f"  sounds: {', '.join(i['names'])}\n  'sound <name>' plays one, 'sounds on|off'")
             if cmd in ("rps", "rock", "paper", "scissors"):
                 g = self.rps
                 if g is None:
@@ -3778,6 +3815,11 @@ input.txt:focus,input.num:focus{border-color:var(--acc)}input.num{width:90px}
 .fclock.brk{color:var(--ok)}.fclock.idle{color:var(--mut)}
 .gmap{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:13px}
 .gmap select{font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--sub);color:var(--fg);min-width:0}
+.dnow{font-weight:600;margin:2px 0 8px;min-height:1.4em;overflow-wrap:anywhere}
+.dtrack{height:6px;border-radius:99px;background:var(--sub);border:1px solid var(--line);overflow:hidden;margin-bottom:10px}
+.dtrack div{height:100%;width:0;background:var(--acc);transition:width .3s linear}
+.dsel{font:inherit;padding:6px 8px;border-radius:10px;border:1px solid var(--line);background:var(--sub);color:var(--fg);flex:1;min-width:150px}
+.sfxchips{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}.sfxchips button{font-size:11px;padding:2px 8px;border-radius:99px}
 .rpsscore{display:flex;justify-content:center;align-items:center;gap:22px;margin:4px 0}.rpsscore div{display:grid;text-align:center}
 .rpsscore b{font-size:40px;line-height:1.05;font-variant-numeric:tabular-nums}.rpsscore span{font-size:12px;color:var(--mut)}.rpsvs{color:var(--mut)}
 .rpsb{font-size:22px;padding:6px 14px}
@@ -3893,6 +3935,18 @@ svg.dial .lvl{fill:none;stroke-width:6;stroke-linecap:round}svg.dial text{font:6
     <button class="btn rpsb" onclick="send('rps rock')" title="Rock">✊</button><button class="btn rpsb" onclick="send('rps paper')" title="Paper">✋</button>
     <button class="btn rpsb" onclick="send('rps scissors')" title="Scissors">✌️</button>
     <button class="btn pri" id="rpsgo" onclick="send(this.dataset.cmd)" data-cmd="rps">Play</button></div>
+</section>
+<section class="card" data-card="dance" data-title="Dance &amp; sounds"><h2><span class="grip" title="Drag to move">⠿</span>Dance &amp; sounds <span class="r hint" id="dst">laptop speaker</span><span class="tools"><button class="tbtn" onclick="toggleWide(this)" title="Wider / narrower">⇔</button><button class="tbtn" onclick="hideCard(this)" title="Remove this card (＋ Cards brings it back)">✕</button></span></h2>
+  <div class="dnow" id="dnow">Pick a song, or let me choose one.</div>
+  <div class="dtrack"><div id="dbar"></div></div>
+  <div class="row" style="flex-wrap:wrap"><select class="dsel" id="dsong" title="Song"><option value="">🎲 Random song</option></select>
+    <button class="btn pri" id="dgo" onclick="danceGo()">💃 Dance</button></div>
+  <div class="row" style="flex-wrap:wrap;margin-bottom:6px">
+    <label class="chk"><input type="checkbox" id="sfxon" onchange="AU.sfxOn=this.checked;auSave();if(this.checked){auCtx();playSfx('blip')}"> 🔔 Sound effects here</label>
+    <label class="chk"><input type="checkbox" id="musicon" onchange="AU.musicOn=this.checked;auSave();AU.key=undefined;render()"> 🎵 Music here</label></div>
+  <div class="row" style="margin-bottom:6px"><span class="hint">🔈</span><input type="range" id="vol" min="0" max="1" step="0.05" oninput="auVol(+this.value)" aria-label="Volume"><span class="hint">🔊</span></div>
+  <div class="sfxchips" id="sfxchips" title="Try a sound (plays here only)"></div>
+  <div class="hint" id="dmsg" style="margin-top:6px"></div>
 </section>
 <section class="card" data-card="apis" data-title="APIs"><h2><span class="grip" title="Drag to move">⠿</span>APIs <span class="r hint" id="apis-st">free · no keys</span><span class="tools"><button class="tbtn" onclick="toggleWide(this)" title="Wider / narrower">⇔</button><button class="tbtn" onclick="hideCard(this)" title="Remove this card (＋ Cards brings it back)">✕</button></span></h2>
   <ul class="notes" id="apilist"></ul>
@@ -4237,10 +4291,97 @@ function renderIdeas(d,force){if(!d)return;const q=($('ideaq').value||'').toLowe
   const items=d.recent.filter(i=>!q||i.text.toLowerCase().includes(q));
   $('idealist').innerHTML=items.length?items.map(i=>`<li><span class="tt">💡 ${esc(i.text)}<br><span class="hint">#${i.id} · ${esc(i.created)}</span></span>`+
     `<button class="x" title="Forget" onclick="send('ideas forget #${i.id}')">×</button></li>`).join(''):'<li class="hint">No ideas yet. Say "remember this idea: …"</li>'}
+// ----- sound effects + dance music, synthesized in this browser (Web Audio): the laptop is the speaker -----
+const AU={ctx:null,master:null,noise:null,vol:0.6,sfxOn:true,musicOn:true,sfxSeen:null,songs:{},songsAt:0,play:null,key:null,el:null};
+let rtt=0;
+try{const v=JSON.parse(localStorage.getItem('robot-audio')||'{}');if(typeof v.vol==='number')AU.vol=v.vol;
+  if(v.sfx===false)AU.sfxOn=false;if(v.music===false)AU.musicOn=false}catch(e){}
+function auSave(){try{localStorage.setItem('robot-audio',JSON.stringify({vol:AU.vol,sfx:AU.sfxOn,music:AU.musicOn}))}catch(e){}}
+function auCtx(){if(!AU.ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
+    AU.ctx=new C();AU.master=AU.ctx.createGain();AU.master.gain.value=AU.vol;AU.master.connect(AU.ctx.destination);
+    const n=AU.ctx.createBuffer(1,AU.ctx.sampleRate,AU.ctx.sampleRate),d=n.getChannelData(0);
+    for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;AU.noise=n}
+  if(AU.ctx.state==='suspended')AU.ctx.resume().catch(()=>{});return AU.ctx}
+['pointerdown','keydown'].forEach(ev=>document.addEventListener(ev,()=>auCtx(),{passive:true}));  // browsers allow sound after a click
+function auReady(){return !!(AU.ctx&&AU.ctx.state==='running')}
+function auVol(v){AU.vol=v;if(AU.master)AU.master.gain.value=v;if(AU.el)AU.el.volume=Math.min(1,v);auSave()}
+function tone(f0,f1,t,dur,type,vol,dest){const c=AU.ctx,o=c.createOscillator(),g=c.createGain();o.type=type||'square';
+  o.frequency.setValueAtTime(f0,t);if(f1&&f1!==f0)o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol||0.15,t+0.008);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g);g.connect(dest||AU.master);o.start(t);o.stop(t+dur+0.02);return o}
+function noise(t,dur,hp,vol,dest){const c=AU.ctx,s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain();s.buffer=AU.noise;
+  f.type='highpass';f.frequency.value=hp;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  s.connect(f);f.connect(g);g.connect(dest||AU.master);s.start(t,Math.random()*0.5);s.stop(t+dur+0.02);return s}
+// each effect: tones [from Hz, to Hz, start s, length s, wave, volume] and noise bursts ['n', high-pass Hz, start, length, volume]
+const SFX={boot:[[392,392,0,.09],[523,523,.1,.09],[659,659,.2,.09],[1047,1047,.3,.2,'triangle',.2]],
+  blip:[[880,1320,0,.06,'square',.06]],happy:[[660,990,0,.09],[880,1320,.11,.12]],sad:[[520,260,0,.45,'triangle',.25]],
+  alarm:[[880,880,0,.12],[660,660,.14,.12],[880,880,.28,.12],[660,660,.42,.12]],
+  bump:[[160,70,0,.18,'sine',.4],['n',800,0,.06,.15]],landed:[[330,330,0,.08,'triangle',.2],[494,494,.09,.14,'triangle',.2]],
+  pat:[[1200,1800,0,.05,'sine',.2],[1500,2200,.07,.06,'sine',.2]],hold:[[700,700,0,.25,'sine',.2]],
+  notify:[[988,988,0,.08,'sine',.22],[1319,1319,.09,.14,'sine',.22]],chime:[[1319,1319,0,.5,'sine',.25],[988,988,.25,.7,'sine',.25]],
+  shutter:[['n',2000,0,.04,.35],['n',1200,.07,.05,.3]],
+  success:[[523,523,0,.08],[659,659,.09,.08],[784,784,.18,.08],[1047,1047,.27,.25,'triangle',.2]],
+  tada:[[784,784,0,.1],[1047,1047,.12,.45,'triangle',.25],[1319,1319,.12,.45,'triangle',.18]],
+  grumble:[[180,120,0,.25,'sawtooth',.1],[150,100,.25,.25,'sawtooth',.1]],sleepy:[[600,300,0,.6,'sine',.18]]};
+function playSfx(name){if(!auCtx()||!auReady())return;const t=AU.ctx.currentTime+0.01;
+  for(const e of SFX[name]||[]){if(e[0]==='n')noise(t+e[2],e[3],e[1],e[4]);else tone(e[0],e[1],t+e[2],e[3],e[4]||'square',e[5]||.15)}}
+function renderSounds(d){if(!d)return;
+  if(AU.sfxSeen===null||d.last_id<AU.sfxSeen)AU.sfxSeen=d.last_id;     // a page that just opened (or a restarted robot): no old sounds
+  else if(d.last_id>AU.sfxSeen){if(AU.sfxOn&&d.on)d.recent.filter(e=>e.id>AU.sfxSeen).slice(-3).forEach((e,i)=>setTimeout(()=>playSfx(e.name),i*150));
+    AU.sfxSeen=d.last_id}
+  const st=$('sfxon');st.title=d.on?'':'Muted on the robot (sounds on)';st.parentElement.style.opacity=d.on?'':'.5'}
+const NOTE={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+function nfreq(n){const m=/^([A-G])([#b]?)(\d)$/.exec(n||'');if(!m)return 0;
+  return 440*Math.pow(2,(NOTE[m[1]]+(m[2]==='#'?1:m[2]==='b'?-1:0)+12*(+m[3]+1)-69)/12)}
+function synthSong(song,offset){const c=AU.ctx,bus=c.createGain(),nodes=[];bus.gain.value=0.9;bus.connect(AU.master);
+  const e8=30/song.bpm,t0=c.currentTime+0.03-offset,bars=song.melody.length,at=i=>t0+i*e8,live=t=>t>=c.currentTime;
+  const BASS={octave:[1,0,2,0,1,0,2,0],offbeat:[0,1,0,2,0,1,0,2],pump:[1,1,1,1,1,1,1,1]}[song.bass_style]||[1,0,1,0,1,0,1,0];
+  for(let r=0;r<(song.repeat||1);r++)for(let b=0;b<bars;b++){const base=(r*bars+b)*8,toks=song.melody[b].split(/\s+/),root=nfreq(song.bass[b]);
+    for(let i=0;i<8;i++){const tk=toks[i];if(!tk||tk==='.'||tk==='-')continue;let len=1;while(toks[i+len]==='-')len++;
+      const t=at(base+i),f=nfreq(tk);if(!live(t)||!f)continue;
+      nodes.push(tone(f,f,t,len*e8*0.92,song.wave||'square',0.1,bus));
+      if(r>0)nodes.push(tone(f*2,f*2,t,len*e8*0.6,'triangle',0.035,bus))}       // second time round: a sparkle an octave up
+    for(let i=0;i<8;i++){const t=at(base+i);if(!BASS[i]||!live(t)||!root)continue;const f=BASS[i]===2?root*2:root;
+      nodes.push(tone(f,f,t,e8*0.8,'triangle',0.22,bus))}
+    for(let i=0;i<8;i++){const d=song.drums[i%song.drums.length],t=at(base+i);if(!live(t))continue;
+      if(d==='K')nodes.push(tone(150,45,t,.16,'sine',.55,bus));else if(d==='S')nodes.push(noise(t,.12,1500,.22,bus));
+      else if(d==='H')nodes.push(noise(t,.04,7000,.08,bus))}}
+  return ()=>{try{bus.gain.setTargetAtTime(0,c.currentTime,0.08)}catch(e){}
+    setTimeout(()=>{nodes.forEach(n=>{try{n.stop()}catch(e){}});try{bus.disconnect()}catch(e){}},500)}}
+function fileSong(song,offset){const a=new Audio('/songs/'+encodeURIComponent(song.file)),t=performance.now();let timer=null,fade=null;
+  a.volume=Math.min(1,AU.vol);AU.el=a;
+  if(offset<0)timer=setTimeout(()=>a.play().catch(()=>{}),-offset*1000);
+  else a.addEventListener('loadedmetadata',()=>{try{a.currentTime=offset+(performance.now()-t)/1000}catch(e){}a.play().catch(()=>{})},{once:true});
+  return ()=>{clearTimeout(timer);if(AU.el===a)AU.el=null;let v=a.volume;
+    fade=setInterval(()=>{v-=0.08;if(v<=0){clearInterval(fade);a.pause();a.removeAttribute('src')}else a.volume=v},40)}}
+async function loadSongs(){AU.songsAt=Date.now();
+  try{const j=await (await fetch('/api/songs')).json();AU.songs={};for(const x of j.songs)AU.songs[x.id]=x;
+    const sel=$('dsong'),cur=sel.value;
+    sel.innerHTML='<option value="">🎲 Random song</option>'+j.songs.map(x=>`<option value="${esc(x.id)}">${esc(x.title)} · ${Math.round(x.bpm)} bpm${x.kind==='file'?' · file':''}</option>`).join('');
+    sel.value=cur}catch(e){}}
+function danceGo(){auCtx();const d=S&&S.dance;
+  if(d&&d.active)send('dance stop');else send('dance '+($('dsong').value||'random'))}
+function renderDance(d){if(!d)return;
+  const key=d.active?d.run+'|'+d.song:null;let msg='';
+  if(key!==AU.key){if(AU.play){AU.play();AU.play=null}AU.key=key;
+    if(key&&AU.musicOn){const song=AU.songs[d.song];
+      if(!song){AU.key=null;if(Date.now()-AU.songsAt>2000)loadSongs()}            // a new music file: fetch the list, try again
+      else if(song.kind==='synth'&&!(auCtx()&&auReady())){AU.key=null}          // sound not allowed yet: wait for a click
+      else{const off=d.elapsed_s+rtt/2000;AU.play=song.kind==='file'?fileSong(song,off):synthSong(song,off)}}}
+  if(d.active&&AU.musicOn&&!AU.play)msg='Click anywhere on this page to let it play the music.';
+  const el=d.elapsed_s==null?0:Math.max(0,d.elapsed_s),pct=d.active&&d.seconds?Math.min(100,el/d.seconds*100):0;
+  $('dbar').style.width=pct+'%';
+  $('dnow').textContent=d.active?`♪ ${d.title}`:(d.title?`Last: ${d.title} (${d.result})`:'Pick a song, or let me choose one.');
+  $('dst').textContent=d.active?`${d.routine||'get ready'} · ${Math.round(el)}/${Math.round(d.seconds)} s`:'laptop speaker';
+  const b=$('dgo');b.textContent=d.active?'■ Stop':'💃 Dance';b.classList.toggle('pri',!d.active);
+  $('dmsg').textContent=msg||(d.active&&d.skipped?`${d.skipped} step${d.skipped===1?'':'s'} skipped: not safe there (edge or obstacle)`:'')}
+$('sfxon').checked=AU.sfxOn;$('musicon').checked=AU.musicOn;$('vol').value=AU.vol;
+$('sfxchips').innerHTML=Object.keys(SFX).map(n=>`<button class="btn" onclick="auCtx();playSfx('${n}')">${n}</button>`).join('');
+loadSongs();
 function renderAccounts(list){if(!list)return;const key=JSON.stringify(list);if(key===renderAccounts.k)return;renderAccounts.k=key;
   $('acctlist').innerHTML=list.map(a=>`<div class="${a.connected?'on':'off'}" title="${esc(a.name)}: ${esc(a.status)} · ${esc(a.for)}">`+
     `<i style="background:${esc(a.colour)}">${esc(a.glyph)}</i><b>${esc(a.name)}</b><small>${esc(a.status)}</small></div>`).join('')}
-const RENDERERS=[s=>renderApis(s.apis),s=>renderIdeas(s.ideas),s=>renderAccounts(s.accounts),s=>renderGestures(s.gestures),s=>renderRps(s.rps),s=>renderPhone(s.phone),s=>renderAI(s.assistant),s=>renderTasks(s.tasks),s=>renderFocus(s.focus),s=>renderPeople(s.people),s=>renderNotes(s.notes)];
+const RENDERERS=[s=>renderSounds(s.sounds),s=>renderDance(s.dance),s=>renderApis(s.apis),s=>renderIdeas(s.ideas),s=>renderAccounts(s.accounts),s=>renderGestures(s.gestures),s=>renderRps(s.rps),s=>renderPhone(s.phone),s=>renderAI(s.assistant),s=>renderTasks(s.tasks),s=>renderFocus(s.focus),s=>renderPeople(s.people),s=>renderNotes(s.notes)];
 function render(){const s=S;if(!s)return;
   for(const f of RENDERERS){try{f(s)}catch(e){console.warn('card render failed',e)}}
   try{renderCore(s)}catch(e){console.warn('render failed',e)}}
@@ -4354,7 +4495,7 @@ function renderCore(s){
     return `<li class="${/STOPPED|stuck|error/i.test(x)?'stop':''}">${esc(x.slice(0,i))} <b>${esc(x.slice(i+1))}</b></li>`}).join('')||'<li>No events yet</li>';
 }
 
-async function state(){try{const r=await fetch('/api/state');S=await r.json();pose=S.pose;failCount=0;render()}
+async function state(){try{const t0=performance.now(),r=await fetch('/api/state');S=await r.json();rtt=performance.now()-t0;pose=S.pose;failCount=0;render()}
   catch(e){if(++failCount>2){$('conndot').className='dot off';$('modetxt').textContent='disconnected'}}}
 
 async function drawMap(){try{const m=await (await fetch('/api/map')).json();const c=$('map'),g=c.getContext('2d'),n=m.n,px=c.width/n;
@@ -4471,7 +4612,17 @@ def make_handler(robot, camera):
                     s["https_port"] = getattr(robot, "https_port", None)
                     s["notes"] = collect_notes(robot, camera)
                     s["oled"] = robot.oled.info() if robot.oled else None
+                    s["dance"] = robot.dance.info() if robot.dance else None    # fresh: the music syncs to it
                     return self._send(200, s)
+                if path == "/api/songs":
+                    return self._send(200, {"songs": robot.dance.songs() if robot.dance else []})
+                if path.startswith("/songs/"):          # a music file from songs/, for the dance
+                    from urllib.parse import unquote
+                    name = unquote(path[len("/songs/"):])
+                    f = song_file_path(name, robot.dance.song_dirs if robot.dance else None)
+                    if f is None:
+                        return self._send(404, {"error": "no such song"})
+                    return self._send(200, f.read_bytes(), SONG_EXTS[f.suffix.lower()])
                 if path == "/oled.png":
                     png = robot.oled.png_bytes() if robot.oled else b""
                     return self._send(200, png, "image/png") if png else self._send(503, {"error": "no OLED image"})
@@ -5029,7 +5180,7 @@ class FocusTimer:
         brk = FOCUS_LONG_BREAK_MIN if long_break else FOCUS_BREAK_MIN
         good = pct is not None and pct >= FOCUS_GOOD * 100
         self.robot.announce(f"{'Great session! ' if good else 'Session done. '}{how} Take a {brk} minute break.",
-                            "happy" if good else "normal")
+                            "happy" if good else "normal", sound="success")
         self.mode, self.until = "break", self.clock() + brk * 60
         return how
 
@@ -5421,7 +5572,8 @@ class Reminders:
                     text = {"soon": f"Heads up: {t['title']} in {TASKS_SOON_MIN} minutes.",
                             "due": f"Reminder: {t['title']}.",
                             "overdue": f"Still open: {t['title']} - it was due an hour ago."}[kind]
-                    self.robot.announce(text, "focused" if kind == "soon" else "happy" if kind == "due" else "sad")
+                    self.robot.announce(text, "focused" if kind == "soon" else "happy" if kind == "due" else "sad",
+                                        sound="chime")
                     self.tasks.mark_reminded(t["id"], kind)
             except Exception as exc:
                 log(f"[tasks] reminder check failed: {type(exc).__name__}: {exc}")
@@ -5705,6 +5857,7 @@ or when it clearly fits (a little wiggle when the user is excited). Otherwise us
   "focus <minutes>"           start a focus (Pomodoro) session, default 25; "focus stop" ends it
   "face me"                   turn to face the user once; "face me on" keeps facing them, "face me off" stops
   "rps"                       start a game of rock paper scissors (first to two; the user shows a hand gesture)
+  "dance"                     play a random song and dance to it (~30 s); "dance <song>" a given one; "dance stop"
 Directions are from the robot's point of view; the user usually sits in front of it, facing it. The robot's
 own safety rules stop it at desk edges and obstacles by themselves, so you never need to check for them, but
 if the context says it is blocked or lifted, say so instead of pretending to move.
@@ -5807,6 +5960,13 @@ def check_ai_command(cmd):
         return f"{parts[0]} {rest}"
     if parts[0] == "rps":
         return "rps stop" if parts[1:2] == ["stop"] else "rps"
+    if parts[0] == "dance":
+        if parts[1:2] in (["stop"], ["off"]):
+            return "dance stop"
+        song = " ".join(parts[1:]).removeprefix("to ").strip()
+        if song and not re.fullmatch(r"[a-z0-9 '-]{1,40}", song):
+            raise ValueError(f"bad song name: {song[:40]!r}")
+        return "dance" + (f" {song}" if song and song != "random" else "")
     if parts[0] == "face":
         return "face me" + (" " + parts[-1] if parts[-1] in ("on", "off") else "")
     if parts[0] == "focus":
@@ -5861,7 +6021,9 @@ OFFLINE_RULES = [       # anchored at the start: only commands match, never ques
                 [f"turn {float(m.group(3))}" if m.group(3) else
                  f"turn {float(m.group(2) or 90) * (1 if m.group(1) == 'left' else -1)}"])),
     (r"^(?:spin|turn\s+around|do\s+a\s+(?:spin|360))\b", lambda m: ("Wheee!", "happy", ["spin"])),
-    (r"^(?:do\s+a\s+)?(dance|wiggle|celebrate)\b", lambda m: ("Watch my moves!", "happy", ["turn 30", "turn -60", "turn 30"])),
+    (r"^(?:stop|quit|end)\s+dancing\b", lambda m: ("Okay, show's over.", "normal", ["dance stop"])),
+    (r"^(?:(?:do\s+a|let'?s|can\s+you|please)\s+)?(dance|boogie|wiggle|celebrate|party)\b|^play\s+(?:some\s+|a\s+)?(?:music|song)\b",
+     lambda m: ("Watch my moves!", "happy", ["dance"])),
     (r"^(?:take|snap|grab)\b.*\b(photo|picture|pic|selfie)\b|^(photo|picture)$",
      lambda m: ("Say cheese!", "happy", ["photo"])),
 ]
@@ -6579,7 +6741,7 @@ GESTURE_DEFAULTS = {"Open_Palm": "stop", "Closed_Fist": "", "Thumb_Up": "forward
                     "Pointing_Up": "face me", "Victory": "photo", "ILoveYou": "rps"}
 # what a gesture may be set to (the dashboard offers exactly these; anything else is refused)
 GESTURE_ACTIONS = ("", "stop", "forward 10cm", "back 10cm", "left", "right", "turn 45", "turn -45", "spin", "face me",
-                   "face me on", "face me off", "photo", "rps", "focus 25", "focus stop", "oled eyes", "joke")
+                   "face me on", "face me off", "photo", "rps", "focus 25", "focus stop", "oled eyes", "joke", "dance")
 RPS_MOVES = {"Closed_Fist": "rock", "Open_Palm": "paper", "Victory": "scissors"}
 RPS_BEATS = {"rock": "scissors", "paper": "rock", "scissors": "paper"}      # key beats value
 RPS_HOW = {("rock", "scissors"): "Rock crushes scissors", ("paper", "rock"): "Paper covers rock",
@@ -7047,6 +7209,373 @@ def accounts_info(robot):
 
 
 # =====================================================================
+# SOUND EFFECTS + DANCE (24 Nov 2026)
+# =====================================================================
+# The laptop is the speaker for now (no speaker on the Pi yet), so the robot only DECIDES what to play: a sound
+# effect or a song gets a numbered entry in its status, and the dashboard page (the browser on the laptop) makes the
+# sound with the Web Audio API. Nothing is downloaded: the effects and the built-in songs are synthesized in the
+# browser from the note lists below. Your own music files can go in songs/ (see SONG_DIRS).
+#
+# Dance: 'dance' picks a random song; the robot moves to its beat in pre-coded routines of 8 beats each (DANCE_ROUTINES),
+# chained at random until the song ends. Sync: the robot owns the clock. The song's beat 0 is DANCE_LEAD_S after
+# 'dance'; /api/state carries the dance's elapsed time, and the page starts the music at that position (corrected
+# by half the request's round trip), so a page opened mid-dance joins in on the beat.
+
+SFX_NAMES = ("boot", "blip", "happy", "sad", "alarm", "bump", "landed", "pat", "hold", "notify", "chime",
+             "shutter", "success", "tada", "grumble", "sleepy")
+SFX_RECENT = 10             # effects kept for the dashboard (a page plays the ones newer than it has seen)
+SFX_REPEAT_S = 0.3          # the same effect again within this long is dropped (no machine-gun beeps)
+SFX_WATCH_HZ = 10.0         # how often robot state is checked for things that make a sound
+MOOD_SFX = {"happy": "happy", "sad": "sad", "angry": "grumble", "scared": "alarm", "focused": "notify",
+            "sleepy": "sleepy", "normal": "notify"}
+SONG_DIRS = [_HERE / "songs", Path.home() / "deskbot" / "songs"]   # .mp3/.ogg/.wav/.m4a, 'name_120bpm.mp3' sets bpm
+SONG_EXTS = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".m4a": "audio/mp4"}
+SONG_FILE_BPM = 120.0       # a music file without '_<n>bpm' in its name
+SONG_FILE_S = 32.0          # a music file is danced to for this long (its length is not known without decoders)
+DANCE_LEAD_S = 1.0          # 'dance' -> first beat: time for the page to see it and start the music
+DANCE_DUTY = 0.8            # motors run this share of each step (a short pause keeps the moves crisp on the beat)
+DANCE_MAX_S = 45.0
+
+# Built-in songs (original tunes). Each bar is 8 eighth notes: a note (C5, F#4, Bb3), '.' rest, '-' hold the last.
+# bass: one root note per bar, played in the song's bass style; drums: one bar of K kick, S snare, H hi-hat, . rest.
+BUILTIN_SONGS = [
+    {"id": "desk-disco", "title": "Desk Disco", "bpm": 120, "repeat": 2, "wave": "square",
+     "melody": ["C5 . E5 G5 . E5 C5 .", "D5 . F5 A5 . F5 D5 .", "E5 . G5 C6 . G5 E5 G5", "F5 - E5 - D5 - . .",
+                "C5 . E5 G5 . E5 C5 .", "A4 . C5 E5 . C5 A4 .", "F4 A4 C5 F5 E5 D5 C5 B4", "C5 - - - . . . ."],
+     "bass": ["C3", "D3", "E3", "F3", "C3", "A2", "F2", "C3"], "bass_style": "octave", "drums": "K.H.SKH.S"},
+    {"id": "robot-shuffle", "title": "Robot Shuffle", "bpm": 104, "repeat": 2, "wave": "triangle",
+     "melody": ["A4 . C5 . E5 D5 C5 .", "G4 . B4 . D5 C5 B4 .", "F4 . A4 . C5 B4 A4 G4", "E4 - G#4 - B4 - . .",
+                "A4 . C5 . E5 D5 C5 .", "G4 . B4 . D5 E5 F5 .", "E5 D5 C5 B4 A4 B4 C5 B4", "A4 - - - . . . ."],
+     "bass": ["A2", "G2", "F2", "E2", "A2", "G2", "F2", "A2"], "bass_style": "offbeat", "drums": "K.HSK.HS"},
+    {"id": "bleep-bop-boogie", "title": "Bleep Bop Boogie", "bpm": 132, "repeat": 2, "wave": "square",
+     "melody": ["G4 G4 B4 D5 . D5 B4 .", "C5 C5 E5 G5 . G5 E5 .", "D5 . B4 . A4 . G4 .", "A4 B4 A4 G4 F#4 - D4 .",
+                "G4 G4 B4 D5 . D5 B4 .", "C5 C5 E5 G5 . G5 A5 .", "B5 A5 G5 E5 D5 B4 A4 F#4", "G4 - . G5 - . . ."],
+     "bass": ["G2", "C3", "G2", "D3", "G2", "C3", "D3", "G2"], "bass_style": "pump", "drums": "KHSHKHSH"},
+    {"id": "moonlit-bloops", "title": "Moonlit Bloops", "bpm": 92, "repeat": 2, "wave": "sine",
+     "melody": ["F4 . A4 C5 - . A4 .", "Bb4 . D5 F5 - . D5 .", "C5 . E5 G5 - . E5 C5", "F5 - E5 - C5 - . .",
+                "F4 . A4 C5 - . A4 .", "D5 . C5 A4 - . G4 .", "Bb4 A4 G4 F4 E4 G4 C5 E5", "F5 - - - . . . ."],
+     "bass": ["F2", "Bb2", "C3", "F2", "F2", "D2", "C3", "F2"], "bass_style": "octave", "drums": "K..HS..H"},
+]
+
+# Dance routines: (move, beats). L/R turn on the spot, F/B drive, SL/SR a longer spin, '-' a pause. Every routine
+# is 8 beats and ends where it started (as much turning left as right, as much forward as back), so a whole dance
+# leaves the robot roughly where it was. At speed 0.5 one beat of turning at 120 bpm is ~50 deg.
+DANCE_ROUTINES = {
+    "wiggle": [("L", 1), ("R", 1), ("L", 1), ("R", 1), ("L", .5), ("R", .5), ("L", .5), ("R", .5), ("-", 2)],
+    "cha-cha": [("F", 1), ("B", 1), ("F", .5), ("B", .5), ("F", .5), ("B", .5), ("L", 1), ("R", 1), ("-", 2)],
+    "spin": [("SL", 2), ("-", 1), ("SR", 2), ("-", 1), ("L", .5), ("R", .5), ("L", .5), ("R", .5)],
+    "robot": [("L", .5), ("-", .5), ("L", .5), ("-", .5), ("R", .5), ("-", .5), ("R", .5), ("-", .5),
+              ("F", .5), ("-", .5), ("B", .5), ("-", .5), ("-", 2)],
+    "shimmy": [("F", .5), ("L", .5), ("B", .5), ("R", .5), ("F", .5), ("R", .5), ("B", .5), ("L", .5),
+               ("F", .5), ("L", .5), ("B", .5), ("R", .5), ("F", .5), ("R", .5), ("B", .5), ("L", .5)],
+    "twist": [("L", 1.5), ("R", 1.5), ("L", 1.5), ("R", 1.5), ("-", 2)],
+}
+DANCE_MOVES = {"L": ("left", "Dance: left"), "R": ("right", "Dance: right"), "F": ("forward", "Dance: forward"),
+               "B": ("backward", "Dance: back"), "SL": ("left", "Dance: spin"), "SR": ("right", "Dance: spin")}
+
+
+def song_beats(song):
+    """Quarter-note beats in a built-in song (8 eighths = 4 beats per bar)."""
+    return len(song["melody"]) * 4 * song.get("repeat", 1)
+
+
+def find_song_files(dirs=None):
+    """Music files the user added: [{id, title, bpm, file, ...}], sorted by name."""
+    out, seen = [], set()
+    for d in (dirs if dirs is not None else SONG_DIRS):
+        try:
+            files = sorted(Path(d).iterdir())
+        except OSError:
+            continue
+        for f in files:
+            if f.suffix.lower() not in SONG_EXTS or not f.is_file() or f.name in seen:
+                continue
+            if not re.fullmatch(r"[\w .()'&+-]{1,80}", f.name):     # served by name: keep it a plain name
+                continue
+            seen.add(f.name)
+            m = re.search(r"[_ -](\d{2,3})\s?bpm", f.stem, re.I)
+            bpm = float(m.group(1)) if m and 50 <= int(m.group(1)) <= 220 else SONG_FILE_BPM
+            title = re.sub(r"[_ -]+\d{2,3}\s?bpm", "", f.stem, flags=re.I).replace("_", " ").strip() or f.stem
+            out.append({"id": "file:" + f.name, "title": title, "bpm": bpm, "file": f.name, "path": str(f),
+                        "seconds": min(DANCE_MAX_S, SONG_FILE_S)})
+    return out
+
+
+def song_file_path(name, dirs=None):
+    """The music file for a /songs/<name> request, or None (only files find_song_files() would list)."""
+    for s in find_song_files(dirs):
+        if s["file"] == name:
+            return Path(s["path"])
+    return None
+
+
+def dance_plan(beats, rng=random):
+    """A random chain of routines filling `beats`: [(routine name, [(move, beats), ...]), ...]. No routine twice in
+    a row; the last one is cut short to fit."""
+    plan, left, last = [], beats, None
+    while left > 0:
+        name = rng.choice([n for n in DANCE_ROUTINES if n != last])
+        steps, total = [], 0.0
+        for mv, b in DANCE_ROUTINES[name]:
+            if total + b > left + 1e-9:
+                break
+            steps.append((mv, b))
+            total += b
+        if not steps:
+            break
+        plan.append((name, steps))
+        left -= total
+        last = name
+    return plan
+
+
+class Sounds:
+    """Sound effects. The robot queues them (play()); every dashboard page with 'Sound effects' ticked plays the
+    ones newer than it has already seen. A watcher thread turns robot state changes into effects, like the OLED's
+    face reacts to them (blocked, lifted, put down, pats, moves, calibration), so the core needs no extra hooks."""
+
+    def __init__(self, robot):
+        self.robot = robot
+        self.on = True
+        self.n = 0
+        self.recent = []
+        self._last = {}
+        self.lock = threading.Lock()
+        self._seen = None
+        self._stop = threading.Event()
+        threading.Thread(target=self._watch, daemon=True, name="sounds").start()
+        self.play("boot")
+
+    def play(self, name):
+        """Queue one effect. Returns the reply for 'sound <name>'."""
+        if name not in SFX_NAMES:
+            return f"Unknown sound '{name}' (one of {', '.join(SFX_NAMES)})"
+        if not self.on:
+            return "Sound effects are off ('sounds on')"
+        now = time.monotonic()
+        with self.lock:
+            if now - self._last.get(name, -1e9) < SFX_REPEAT_S:
+                return f"Sound: {name}"
+            self._last[name] = now
+            self.n += 1
+            self.recent = (self.recent + [{"id": self.n, "name": name}])[-SFX_RECENT:]
+        return f"Sound: {name}"
+
+    def mood(self, mood):
+        return self.play(MOOD_SFX.get(mood, "notify"))
+
+    def _snapshot(self):
+        r = self.robot
+        mv = r.move
+        return {"blocked": r.blocked, "lifts": r.lift["lifts"], "lifted": r.lift["lifted"],
+                "pats": r.touch["pats"], "holds": r.touch["holds"], "cal": r.cal_message,
+                "move": None if mv is None else mv.get("t0")}
+
+    def _changes(self, old, new):
+        """The effects for one state change (pure: tested on its own)."""
+        out = []
+        dancing = bool(getattr(self.robot, "dance", None) and self.robot.dance.active())
+        if new["lifts"] > old["lifts"]:
+            out.append("alarm")
+        elif old["lifted"] and not new["lifted"]:
+            out.append("landed")
+        elif new["blocked"] and new["blocked"] != old["blocked"] and not new["blocked"].startswith("lifted"):
+            b = new["blocked"]
+            kind = ("sad" if "stuck" in b else "alarm" if ("edge" in b or "tilted" in b) else
+                    "hold" if "touch" in b else "bump" if ("obstacle" in b or "bump" in b) else "grumble")
+            if not dancing or kind in ("sad", "alarm"):        # during a dance a skipped step is not news
+                out.append(kind)
+        if new["pats"] > old["pats"]:
+            out.append("pat")
+        if new["holds"] > old["holds"]:
+            out.append("hold")
+        if new["cal"] != old["cal"] and new["cal"]:
+            out.append("success" if new["cal"].startswith(("Calibrated", "Turning calibrated")) else
+                       "sad" if "failed" in new["cal"] else "notify")
+        if new["move"] is not None and new["move"] != old["move"] and not dancing and not out:
+            out.append("blip")
+        return out
+
+    def _watch(self):
+        while not self._stop.wait(1.0 / SFX_WATCH_HZ):
+            try:
+                new = self._snapshot()
+                if self._seen is not None:
+                    for name in self._changes(self._seen, new):
+                        self.play(name)
+                self._seen = new
+            except Exception as exc:
+                log(f"[sounds] {type(exc).__name__}: {exc}")
+
+    def set(self, on):
+        self.on = on
+        return "Sound effects on" if on else "Sound effects off (the dashboard stays quiet; music still plays)"
+
+    def info(self):
+        with self.lock:
+            return {"on": self.on, "last_id": self.n, "recent": list(self.recent), "names": list(SFX_NAMES)}
+
+    def close(self):
+        self._stop.set()
+
+
+class Dance:
+    """'dance [song]': plays a song (in the dashboard browser) and moves to its beat. Every step is an ordinary
+    timed move through Robot.start(), so all the safety rules apply; a step that is not safe is skipped (the
+    robot dances on the spot), and the dance ends on 'stop', any command from a person, or being lifted."""
+
+    def __init__(self, robot, song_dirs=None, rng=None):
+        self.robot = robot
+        self.song_dirs = song_dirs
+        self.rng = rng or random.Random()
+        self.state = {"active": False, "run": 0, "song": None, "title": "", "bpm": 0.0, "seconds": 0.0,
+                      "routine": "", "step": "", "skipped": 0, "result": "", "t0": None}
+        self._last_song = None
+        self.lock = threading.Lock()
+
+    def songs(self):
+        """Every song: the built-in ones (with their notes, for the page's synthesizer) and the music files."""
+        built = [dict(s, kind="synth", seconds=round(song_beats(s) * 60.0 / s["bpm"], 2)) for s in BUILTIN_SONGS]
+        files = [{k: v for k, v in s.items() if k != "path"} | {"kind": "file"}
+                 for s in find_song_files(self.song_dirs)]
+        return built + files
+
+    def _pick(self, want):
+        songs = self.songs()
+        if want:
+            w = want.lower().strip()
+            hit = next((s for s in songs if s["id"] == w), None) or next(
+                (s for s in songs if w in s["title"].lower() or w in s["id"]), None)
+            return hit
+        pool = [s for s in songs if s["id"] != self._last_song] or songs
+        return self.rng.choice(pool)
+
+    def active(self):
+        return self.state["active"]
+
+    def start(self, want=""):
+        r = self.robot
+        if r.lift["lifted"]:
+            return "Not dancing: I'm lifted - put me down on the desk"
+        if r.cal:
+            return "Not dancing: encoder calibration in progress"
+        song = self._pick(want)
+        if song is None:
+            return f"No song called '{want}'. Songs: " + ", ".join(s["title"] for s in self.songs())
+        r.nav.state["active"] = False                    # a dance replaces a trip
+        r.nav._run_id += 1
+        seconds = min(DANCE_MAX_S, song["seconds"])
+        beats = int(seconds * song["bpm"] / 60.0)
+        plan = dance_plan(beats, self.rng)
+        with self.lock:
+            self.state["run"] += 1
+            run = self.state["run"]
+            self.state.update(active=True, song=song["id"], title=song["title"], bpm=song["bpm"], seconds=seconds,
+                              routine="", step="get ready", skipped=0, result="",
+                              t0=time.monotonic() + DANCE_LEAD_S)
+        self._last_song = song["id"]
+        r.event(f"Dance: {song['title']} ({song['bpm']:.0f} bpm, {seconds:.0f} s)")
+        if r.oled is not None:
+            r.oled.say(f"Dancing to\n{song['title']}", 3.0)
+            r.oled.mood("happy", seconds + DANCE_LEAD_S)
+        threading.Thread(target=self._run, args=(run, r.user_cmds, plan, song["bpm"]), daemon=True,
+                         name="dance").start()
+        where = "" if getattr(r, "dashboard_on", True) else " (no dashboard, so no music: just the moves)"
+        return f"Dancing to {song['title']}!{where} ('stop' ends it)"
+
+    def _cancelled(self, run, user_cmds):
+        r = self.robot
+        if run != self.state["run"] or not self.state["active"]:
+            return "replaced"
+        if r.user_cmds != user_cmds:
+            return "stopped"
+        if r.lift["lifted"]:
+            return "I was picked up"
+        return ""
+
+    def _wait_until(self, t, run, user_cmds):
+        while True:
+            why = self._cancelled(run, user_cmds)
+            left = t - time.monotonic()
+            if why or left <= 0:
+                return why
+            time.sleep(min(0.02, left))
+
+    def _run(self, run, user_cmds, plan, bpm):
+        r = self.robot
+        beat = 60.0 / bpm
+        t = self.state["t0"]
+        why = ""
+        try:
+            for name, steps in plan:
+                with self.lock:
+                    if run == self.state["run"]:
+                        self.state["routine"] = name
+                for mv, beats in steps:
+                    why = self._wait_until(t, run, user_cmds)
+                    if why:
+                        break
+                    if mv != "-":
+                        way, label = DANCE_MOVES[mv]
+                        reply = r.start(way, beats * beat * DANCE_DUTY, label)
+                        if reply.startswith("Not moving"):
+                            self.state["skipped"] += 1
+                    with self.lock:
+                        if run == self.state["run"]:
+                            self.state["step"] = {"-": "pause"}.get(mv, DANCE_MOVES.get(mv, ("", ""))[1].split(": ")[-1])
+                    t += beats * beat
+                if why:
+                    break
+            if not why:
+                why = self._wait_until(t, run, user_cmds)
+        finally:
+            with self.lock:
+                mine = run == self.state["run"]
+                if mine:
+                    self.state.update(active=False, step="", routine="",
+                                      result="finished" if not why else why)
+            if mine:
+                if r.move and str(r.move.get("label", "")).startswith("Dance"):
+                    r.stop()
+                if not why:
+                    r.event(f"Dance finished: {self.state['title']}"
+                            + (f" ({self.state['skipped']} steps skipped for safety)" if self.state["skipped"] else ""))
+                    if r.sounds is not None:
+                        r.sounds.play("tada")
+                    if r.oled is not None:
+                        r.oled.mood("happy", 3.0)
+                elif why != "replaced":
+                    r.event(f"Dance ended: {why}")
+
+    def stop(self):
+        with self.lock:
+            was = self.state["active"]
+            self.state.update(active=False, result="stopped")
+        if was and self.robot.move and str(self.robot.move.get("label", "")).startswith("Dance"):
+            self.robot.stop()
+        return "Dance stopped" if was else "Not dancing"
+
+    def info(self):
+        with self.lock:
+            s = {k: v for k, v in self.state.items() if k != "t0"}
+            t0 = self.state["t0"]
+        s["elapsed_s"] = round(time.monotonic() - t0, 3) if (s["active"] and t0 is not None) else None
+        return s
+
+    def line(self):
+        s = self.info()
+        if not s["active"]:
+            last = f" (last: {s['title']}, {s['result']})" if s["title"] else ""
+            return "Not dancing" + last
+        skipped = f", {s['skipped']} steps skipped" if s["skipped"] else ""
+        return (f"Dancing to {s['title']} ({s['bpm']:.0f} bpm): {max(0.0, s['elapsed_s']):.0f}/{s['seconds']:.0f} s, "
+                f"{s['routine'] or 'starting'}{skipped}")
+
+    def close(self):
+        self.stop()
+
+
+# =====================================================================
 # Main
 # =====================================================================
 
@@ -7160,6 +7689,7 @@ def main():
     if server is not None and args.https_port:
         https = guarded("https", start_https, robot, camera, args.host, args.https_port)
     robot.https_port = args.https_port if https else None
+    robot.dashboard_on = server is not None      # the dance's music plays on a dashboard page
 
     print("\n=== ROBOT CONTROL ===  mode:", hw.mode, "| type 'help' for commands, Ctrl+C or 'quit' to exit")
     try:
@@ -7208,6 +7738,8 @@ def extra_features(robot, args, start):
     robot.rps = start("rock paper scissors", RockPaperScissors, robot)
     robot.apis = start("web APIs", WebApis)
     robot.ideas = start("ideas", Ideas)
+    robot.sounds = start("sound effects", Sounds, robot)
+    robot.dance = start("dance", Dance, robot)
 
 
 if __name__ == "__main__":

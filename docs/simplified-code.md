@@ -90,6 +90,9 @@ Typed at `robot>` or in the dashboard's command box. The dashboard buttons send 
 | `sim phone near\|far\|away` | | simulation only: move the simulated phone |
 | `gestures`, `gesture map <Name> <action>` | | what each laptop-camera gesture does. See [Gestures](#gestures-from-the-laptop-camera-and-rock-paper-scissors-added-24-nov-2026) |
 | `rps`, `rps stop`, `rock` / `paper` / `scissors` | | rock paper scissors, first to two |
+| `dance [song]`, `dance stop`, `dance status` | `boogie` | play a random song (or that one) and dance to its beat. See [Sound effects and dance](#sound-effects-and-dance-added-24-nov-2026) |
+| `songs` | `dance list` | the songs it can dance to (built in + files in `songs/`) |
+| `sounds`, `sounds on` / `sounds off`, `sound <name>` | `beep <name>` | sound effects (played by the dashboard page) |
 | `weather [city]`, `weather home <city>`, `joke`, `wiki <topic>`, `convert 10 usd to inr` | `look up …` | free web APIs. See [Web APIs](#web-apis-ideas-and-accounts-added-24-nov-2026) |
 | `idea <text>`, `ideas`, `ideas search <words>`, `ideas forget <#n or words>` | | the ideas notebook |
 | `focus [minutes]` | `pomodoro` | a focus session (default 25 min, 1-180). While one runs, `focus` shows how it's going. See [Focus timer](#focus-timer-added-24-nov-2026) |
@@ -617,6 +620,108 @@ afterwards; the retry and give-up; spoken moves offline (a sentence that only me
 **The browser part was checked in headless Edge**: the module imported, the WebAssembly loaded, the recognizer was
 created in video mode and `recognizeForVideo` ran on a fake camera stream (no hand → no gesture). Not yet tried
 with a real hand on the laptop camera.
+
+## Sound effects and dance (added 24 Nov 2026)
+
+There is no speaker on the Pi yet, so the **laptop is the speaker**: the robot decides *what* to play and the
+dashboard page makes the sound with the browser's Web Audio API. Nothing is downloaded and there are no audio files
+to install: every effect and the four built-in songs are synthesized in the page from short note lists in the
+script. With no dashboard open the robot still dances, just silently.
+
+### Sound effects (`Sounds`)
+
+`robot.sounds.play(name)` adds a numbered entry (`{"id", "name"}`) to a list of the last `SFX_RECENT` = 10, which is
+in `/api/state` under `sounds`. Each dashboard page remembers the highest id it has played and plays newer ones (at
+most 3 at once, 150 ms apart). A page that has just opened, or sees the ids go backwards (robot restarted), only
+remembers the current id, so it never replays old sounds. The same effect twice within `SFX_REPEAT_S` = 0.3 s is
+dropped.
+
+| Effect | When |
+| --- | --- |
+| `boot` | the program starts (heard if a page was already open, e.g. after a restart) |
+| `blip` | a move starts (not during a dance) |
+| `bump` | a move blocked by an obstacle or an IMU bump |
+| `alarm` | picked up, an edge, tilted; an announcement with the `scared` face |
+| `landed` | put back down |
+| `pat` / `hold` | touch pad pat / hold (or a move stopped by the touch pad) |
+| `sad` | a wheel stuck, a calibration failed; `sad` announcements |
+| `success` | a calibration finished; a focus session finished |
+| `chime` | a task reminder (soon / due / overdue) |
+| `shutter` | `photo` |
+| `tada` | a dance finished |
+| `happy`, `notify`, `grumble`, `sleepy` | announcements, by their face (`MOOD_SFX`): rock paper scissors results, the greeter, "welcome back", jokes, the focus nudges |
+
+How the triggers are found: most come from a **watcher thread** (`sounds`, 10 Hz) that compares a small snapshot of
+the robot's state with the previous one (blocked reason, lift count, lifted, pats, holds, calibration message, the
+current move's start time), the same way the OLED's face reacts to state changes. So the control loop has no new code
+and no sound can slow it down. `Sounds._changes(old, new)` is a pure function. The rest are explicit:
+`Robot.announce(text, mood, sound=None)` plays the mood's effect (or `sound`), `photo` plays `shutter`, the dance
+plays `tada`. During a dance, blocked steps make no sound (only stuck/edge/tilt do).
+
+`sounds off` mutes every page (the robot stops queueing effects); dance music is not affected. On a page, the card's
+**🔔 Sound effects here** and **🎵 Music here** boxes and the volume slider are that browser's own settings (kept in
+`localStorage` under `robot-audio`). The row of small buttons previews each effect in that browser only.
+
+Browsers only allow sound after the person has clicked or pressed a key on the page once. The page creates its
+`AudioContext` on the first click/key; until then effects are skipped and a dance shows "Click anywhere on this page
+to let it play the music" (the music then joins in on the beat).
+
+### Dance (`Dance`)
+
+`dance` (or "let's dance", "play some music", 💃 on the card, a gesture mapped to `dance`, or the AI) picks a random
+song, never the same one twice in a row; `dance <song>` picks one by id or part of its title (`dance disco`). It
+answers at once; a `dance` thread does the moves.
+
+**Moves.** A dance is a chain of pre-coded **routines**, 8 beats each (`DANCE_ROUTINES`): `wiggle`, `cha-cha`,
+`spin`, `robot`, `shimmy`, `twist`. `dance_plan(beats)` chains them at random (never the same one twice in a row)
+until the song's beats are used up; the last is cut short to fit. A step is `(move, beats)`: `L`/`R` turn on the
+spot, `F`/`B` drive, `SL`/`SR` a longer spin, `-` a pause. Every routine turns as much left as right and drives as
+much forward as back, so a whole dance ends roughly where it started (a test checks this for every routine). At
+speed 0.5 one beat of turning at 120 bpm is about 50°.
+
+**Timing.** Step *k* starts exactly at `t0 + (beats before it) × 60/bpm` on `time.monotonic()` (an absolute
+schedule, so it never drifts), and runs the motors for `DANCE_DUTY` = 80 % of its length, which leaves a short
+stop that makes each move land on the beat. `t0` is `DANCE_LEAD_S` = 1 s after the command, time for the page to
+notice the dance and start the music.
+
+**Safety.** Each step is an ordinary timed move through `Robot.start()`, so every safety rule applies (sonar, edge
+IR, tilt, bumps, stuck wheels, lift). A step that is not safe is skipped; the robot keeps dancing on the spot and
+the card says how many steps were skipped. The dance ends on `stop` (also an AI "stop"), `dance stop`, **any command
+from a person** (like a `go to` trip), being lifted, or calibration. A new `dance` replaces the old one, and a dance
+cancels a running `go to` trip.
+
+**Music sync.** `/api/state` carries `dance` built fresh for every request (not the shared 0.1 s status snapshot):
+`active`, `run`, `song`, `bpm`, `seconds`, `routine`, `step`, `skipped`, `result` and `elapsed_s` (seconds since beat
+0, negative during the lead-in). The page measures each `/api/state` round trip and starts the song at
+`elapsed_s + round trip / 2`: notes in the past are skipped, so a page opened in the middle of a dance joins in on the
+beat. When `run`/`song` changes or the dance ends, the old music fades out over ~0.3 s.
+
+**Built-in songs** (original tunes, `BUILTIN_SONGS`): Desk Disco (120 bpm), Robot Shuffle (104), Bleep Bop Boogie
+(132), Moonlit Bloops (92); 8 bars, played twice (29-42 s). Each bar is 8 eighth notes (`C5`, `F#4`, `Bb3`, `.` rest,
+`-` hold); the bass is one root per bar in a style (`octave`, `offbeat`, `pump`) and the drums one bar of `K` kick,
+`S` snare, `H` hi-hat. The page plays the melody on the song's wave (square/triangle/sine), the bass on a triangle
+wave, the kick as a falling sine and the snare/hi-hat as filtered noise; the second time round adds a quiet octave-up
+sparkle. All notes are scheduled ahead on the audio clock (320-500 per song), so playback does not depend on the
+page's timers.
+
+**Your own music.** Put `.mp3`, `.ogg`, `.wav` or `.m4a` files in `songs/` next to the script (or `~/deskbot/songs/`).
+Name them with their tempo, `My Song_128bpm.mp3`, so the moves are on the beat (otherwise 120 bpm is assumed). The
+robot can't read a file's length without audio libraries, so it dances to the first `SONG_FILE_S` = 32 s. Files are
+served at `/songs/<name>`; only names listed by `find_song_files()` are served (letters, digits, spaces and `._-()'&+`,
+no paths), anything else is a 404. `/api/songs` lists every song (the built-in ones with their notes). If the beat of a
+file doesn't start at 0:00 the moves will be slightly off; trim the file's silence.
+
+**OLED**: "Dancing to <title>" for 3 s, then happy eyes (the eyes also look the way it turns) for the whole dance.
+
+Tested (simulation): every routine is 8 beats and balanced; songs have 8 notes per bar; `dance_plan` fills the
+beats with no routine twice in a row; music files are found with their bpm and title, and odd names and `../`
+paths are refused; a dance runs every kind of move, `stop` ends it with the motors off, lifting ends it, a short song
+runs to the end and plays `tada`; `sounds off`; the AI check (`dance`, `dance to desk disco`, `dance stop`) and
+the offline phrases. Live in `--sim`: `/api/songs`, `/api/state`, the effects for lift / put down / pat / move,
+and the page in headless Edge (no console errors, the song list filled, the music started at the robot's position
+and the progress bar followed it). The synthesizer was checked by building every song and effect in Edge's Web
+Audio (no errors, note frequencies right: A4 = 440 Hz). **Not yet heard on a real laptop speaker or danced on the
+real robot**: check the turn sizes on the desk and lower `--speed` if the moves are too big.
 
 ## Web APIs, ideas and accounts (added 24 Nov 2026)
 
@@ -1369,5 +1474,7 @@ with the laptop webcam, 0 JPEGs while nobody watched, 48 in 4 s with one viewer,
 | reminders | every 5 s: tasks due soon / now / overdue → `announce` (OLED, log, chat → browser speech) |
 | navigator | one `go to` / `find` / `go home` trip: look, turn, drive a leg, look again (one at a time) |
 | assistant-plan | runs one AI reply's commands in order, waiting for each move to end (one per reply; an older plan stops) |
+| sounds | 10 Hz: robot state changes → sound effects for the dashboard pages |
+| dance | one dance: starts each step's move on the beat (one at a time; a new dance replaces it) |
 
 The shared robot state is guarded by one `RLock`, and the map has its own lock.
