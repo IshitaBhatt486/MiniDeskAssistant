@@ -90,15 +90,16 @@ class GpioSensors:
     mode = "hardware"
 
     def __init__(self):
-        from gpiozero import DigitalInputDevice, DistanceSensor
+        from gpiozero import DigitalInputDevice
+
+        from .sonar_scanner import SonarScanner
 
         self.devices = []
         try:
-            self.sonars = {}
-            for name, c in SONARS.items():
-                self.sonars[name] = DistanceSensor(echo=c["echo"], trigger=c["trigger"],
-                                                   max_distance=MAX_DISTANCE, queue_len=1)
-                self.devices.append(self.sonars[name])
+            # 24 Nov 2026: one scanner pings the sonars one at a time (was one gpiozero DistanceSensor each, which
+            # heard each other's echoes on the robot). See sonar_scanner.py.
+            self.scanner = SonarScanner(SONARS, MAX_DISTANCE)
+            self.devices.append(self.scanner)
             self.front_ir = DigitalInputDevice(PINS["ir_front"])
             self.back_ir = DigitalInputDevice(PINS["ir_back"])
             self.devices += [self.front_ir, self.back_ir]
@@ -110,7 +111,8 @@ class GpioSensors:
             raise
 
     def distances(self):
-        return {name: s.distance for name, s in self.sonars.items()}
+        """{name: metres or None}. None = no echo / no fresh reading: sensor_filter turns repeats into a fault."""
+        return {name: self.scanner.latest(name) for name in SONARS}
 
     def encoders(self):
         return self.enc.read() if self.enc is not None else None

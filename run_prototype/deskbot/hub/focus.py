@@ -55,6 +55,7 @@ YAW_TOL, PITCH_TOL = 0.35, 0.22
 BASELINE_S = 4.0
 GRACE_S, REPEAT_S, PHONE_S, RESET_S = 20.0, 45.0, 10.0, 3.0
 NO_FACE_AWAY_N = 3
+MIN_FACE = 0.008            # faces smaller than this share of the picture (further than ~1 m) are someone else
 GOOD_SESSION = 0.8
 
 LINES = {
@@ -247,7 +248,10 @@ class Focus:
         if self.analyzer is not None and self.analyzer.ready() and hasattr(self.vision, "frame_image"):
             image = self.vision.frame_image(res)
             if image is not None:
-                faces = self.analyzer.faces(image)
+                h, w = image.shape[:2]
+                # only a face near the robot is the person working: on the first live test (24 Nov 2026,
+                # legacy/simplified_code.py) the only face found was someone across the room
+                faces = [f for f in self.analyzer.faces(image) if f[2] * f[3] >= MIN_FACE * w * h]
                 face = faces[0] if faces else None
         return dets, face
 

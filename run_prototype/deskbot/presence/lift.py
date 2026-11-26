@@ -67,6 +67,7 @@ class LiftDetector:
 
         if not self.lifted and cond == "air" and held >= LIFT_CONFIRM_S:
             self.lifted, self.lifted_at = True, now
+            self.left_at = self._cond[1]             # when it left the desk (the lift is confirmed later)
             self.lifts += 1
             if self.executor:
                 self.executor.cancel()
@@ -75,7 +76,9 @@ class LiftDetector:
             self.robot.log("warn", "Lifted off the desk: motors stopped, mapping paused")
             self.say("Whoa! Put me down gently please.", "chatter")
         elif self.lifted and cond == "desk" and held >= PLACE_CONFIRM_S:
-            up_for = now - self.lifted_at
+            # time off the desk: from leaving it to touching down. Measuring from the lift CONFIRMATION to the END
+            # of the put-down confirmation made every lift count >= 1 s = RESET_AFTER_S (24 Nov 2026)
+            up_for = self._cond[1] - self.left_at
             self.lifted = False
             self.alerts.resolve("lift-stuck")
             if up_for >= RESET_AFTER_S:

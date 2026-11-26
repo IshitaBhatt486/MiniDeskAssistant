@@ -46,7 +46,7 @@ import numpy as np
 
 from multisonar import MAX_DISTANCE, MultiSonarMapper, SONARS  # dashboard/ (on sys.path via deskbot/__init__)
 
-from ..config import AppConfig, object_radius
+from ..config import AppConfig, object_depth, object_radius
 from ..vision.geometry import CameraModel
 from .grid import DecayGrid
 from .semantic import Observation, SemanticMap
@@ -219,6 +219,12 @@ class FusionMapper(MultiSonarMapper):
             bearing = self.cam.bearing(u)
             seen_rng = None
             truncated = y2 >= cfg.height - 2           # base cut off -> ground range is unreliable
+            # 24 Nov 2026: cut off at the left/right edge -> the box centre (its direction) is wrong: still a
+            # sighting (keeps the landmark alive, by track ID), but not placed. Placing them put objects ~10 cm
+            # off in legacy/simplified_code.py.
+            if x1 <= 2 or x2 >= cfg.width - 2:
+                obs.append(Observation(det.label, det.score, None, None, 1.0, det.track_id))
+                continue
             gp = None if truncated else self.cam.ground_point(u, y2)
             r_ground = None if gp is None else math.hypot(gp[0] - cfg.x, gp[1] - cfg.y)
 
@@ -255,8 +261,8 @@ class FusionMapper(MultiSonarMapper):
             if point is None:
                 obs.append(Observation(det.label, det.score, None, None, 1.0, det.track_id))
                 continue
-            # the box bottom is the object's FRONT face; its centre is ~one radius further away
-            rad = object_radius(det.label)
+            # the box bottom is the object's FRONT face; its centre is ~half its depth further away
+            rad = object_depth(det.label)
             px, py = point[0] + rad * math.cos(bearing), point[1] + rad * math.sin(bearing)
             wx, wy = self._to_world(pose, px, py)
             obs.append(Observation(det.label, det.score * weight, wx, wy, var, det.track_id, source))
@@ -268,7 +274,7 @@ class FusionMapper(MultiSonarMapper):
             if not (0.10 < rng < mc.max_detect_range):
                 return False
             # the object's base (front face) must be inside the image
-            rad = object_radius(lm.label)
+            rad = object_depth(lm.label)
             fx, fy = rx - rad * dx / rng, ry - rad * dy / rng
             if not self.cam.in_view(fx, fy, margin_px=10):
                 return False

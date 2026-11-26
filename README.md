@@ -737,7 +737,14 @@ Each ECHO needs its own voltage divider. Full details (pin choice, mounting, saf
 
 `legacy/simplified_code.py` is everything above in one standalone file: a typed CLI (`forward 2`, `back`, `left`,
 `right`, `spin`, `stop`, `speed 0.6`, `status`), obstacle/edge stop, a rough obstacle map and a dashboard with
-the camera at `http://<pi>:8080`. Same pins.
+the camera at `http://<pi>:8080`. Same pins. Since 23-24 Nov 2026 it also has encoder calibration, OLED eyes,
+the IMU, lift detection, the touch pad, object detection, photos, an assistant (`ask …`, Groq first, Claude as the
+fallback; GROQ_API_KEY in `secrets.env`; microphone on `https://<pi>:8443`), objects on the map (`where is the cup`),
+drive by distance (`forward 30cm`), `go to the cup`, tasks with reminders (`remind me in 20 minutes to stretch`),
+a focus timer (`focus 25`), `face me` + a greeter, gestures from the laptop camera, rock paper scissors, Bluetooth phone
+presence, a noise filter and fused confidence map, free web APIs (weather, Wikipedia, jokes, currency), an ideas notebook, sound effects and
+`dance` (a random song played by the laptop, danced to in pre-coded routines on the beat), and a
+drag-and-drop dashboard with a Notes card and a presentation mode; a failing feature is skipped and noted, never a crash.
 
 ```bash
 python3 legacy/simplified_code.py          # on the Pi
@@ -781,6 +788,7 @@ legacy/                  3Nov-latest.py, 13Nov-multisonar.py, simplified_code.py
 | File | Contents |
 | --- | --- |
 | [`docs/run-prototype.md`](docs/run-prototype.md) | What is in `run_prototype/` (the only folder the Pi needs) and the short Pi quick start |
+| [`docs/run-prototype-fixes.md`](docs/run-prototype-fixes.md) | Bugs found in the simplified version and fixed in run_prototype (sequential sonars, lift timing, offline voice rules, ...) |
 | [`docs/companion.md`](docs/companion.md) | `main.py`: IMU, PID control, pick-up handling, gestures, OLED eyes, calibration, saved outputs |
 | [`docs/navigation.md`](docs/navigation.md) | Obstacle-to-obstacle navigation: adaptive planner selection, safety-aware routes, replanning, search, home, no-go zones, confidence, limits |
 | [`docs/full.md`](docs/full.md) | `main.py full`: wake word, routines, smart home, reader, local AI, games, hydration, briefings, faces, guard, Telegram, feature switches |
