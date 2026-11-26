@@ -37,6 +37,11 @@ python3 legacy/simplified_code.py --sim         # laptop: simulated robot on a s
 | `--no-ai` / `--groq-model M` / `--claude-model M` | assistant with offline rules only / the AI models. See [Assistant](#assistant-added-24-nov-2026) |
 | `--https-port 8443` | the https copy of the dashboard, for the browser microphone (`0` = off) |
 | `--no-imu` / `--imu-address 0x68` | do not use the IMU / its I2C address. See [IMU](#imu-added-24-nov-2026) |
+| `--basic` | basic mode: motors, sensors, sensor map, obstacle stops and a camera-less dashboard only. See [Basic mode](#basic-mode-ignore-obstacles-and-motor-priority-25-nov-2026) |
+| `--ignore-obstacles` | start with sonar obstacle stops off (`obstacles on` turns them back on) |
+| `--reverse-motors` | both motors wired backwards: flip them (saved in `motors.json`). See [Motors wired backwards](#motors-wired-backwards-25-nov-2026) |
+| `--slam` | start with SLAM on. See [SLAM](#camera-upside-down-invert-and-slam-25-nov-2026) |
+| `--no-invert` | camera picture as it comes (default: rotated 180 deg, camera mounted upside down) |
 
 Open `http://raspberrypi.local:8080` (or the Pi's IP address) from a laptop or phone on the same network.
 Stop any other robot script first, because two programs cannot hold the same GPIO pins.
@@ -1456,6 +1461,220 @@ for its much heavier load. Re-measure on the Pi before changing this; the benchm
 Behaviour checks after the change: all 5 feature test suites pass (assistant, objects, distance, go-to, tasks);
 with the laptop webcam, 0 JPEGs while nobody watched, 48 in 4 s with one viewer, 0 after it left, and
 `/snapshot.jpg` still returned a fresh JPEG; a browser showed the live video; a 404 still worked over keep-alive.
+
+## Basic mode, ignore obstacles and motor priority (25 Nov 2026)
+
+### What was measured on the Pi first
+
+With the robot program (`test_20261125.py`, the same code) running on the Pi 4, motors unpowered:
+
+| | measured |
+| --- | --- |
+| whole Pi | **93 % of 4 cores busy**, load average 10, CPU at **80 °C**, `vcgencmd get_throttled` = `0x80000` (it has hit the soft temperature limit, so the CPU slows down) |
+| the robot program | 158 % of one core: two threads ~50 % each (one started 1.4 s after launch, one at 3.1 s, next to the camera start), the camera stack ~20 % |
+| Firefox on the Pi showing the dashboard | ~150 % of one core (Firefox + its content process) |
+| 50 Hz control loop | healthy: 50 ticks/s, 17 late ticks in ~6 min |
+| GPIO inputs | no edge storm: encoders and sonar echo pins quiet with the motors off. GPIO 11 (front sonar echo) never goes high, so every forward move was refused: `front sonar unreadable` |
+
+So the motor loop itself kept its 50 Hz. What felt slow was the whole Pi being saturated (the dashboard in the Pi's
+own browser + video + detection) and thermally throttled, plus forward moves being blocked by the dead front sonar.
+Per-thread Python stacks (py-spy) were not taken: attaching to a running process needs sudo, which was not used.
+
+### Motor priority (`prioritize_motors`)
+
+`main()` calls it right after the hardware and the `Robot` exist, i.e. after these threads have started: lgpio's
+edge thread (sonar echo + encoder timestamps), the sonar scanner, the 100 Hz IMU and the 50 Hz control loop. It:
+
+1. Sets `sys.setswitchinterval(GIL_SWITCH_S)` = 2 ms (Python's default is 5 ms): a thread holding the GIL hands it
+   over sooner, so the control loop waits less for the interpreter when it wakes up every 20 ms.
+2. Lowers the **calling (main) thread** to `nice BACKGROUND_NICE` (10) with `os.setpriority(PRIO_PROCESS,
+   threading.get_native_id(), 10)`. On Linux nice is a per-thread value and new threads inherit it from the thread
+   that creates them, so everything created afterwards (camera + libcamera, detector and NCNN's workers, the
+   dashboard's request threads, OLED, Bluetooth, AI, reminders, faces, games...) runs below the motor threads.
+   Lowering priority needs no root; raising it would, which is why the motor threads are left at 0 instead.
+3. Returns a line for the log: `[robot] motor priority: motors/sensors at normal priority, everything else at nice 10`.
+   Windows / macOS: only the GIL interval changes.
+
+Verified on the Pi (simulation, because the real GPIO was in use): 2 threads at nice 0 (IMU, control loop; on the
+robot also lgpio's edge thread and the sonar scanner), 21 at nice 10. When the Pi is saturated the kernel now gives
+the motor/sensor threads the CPU first. It does not make the Pi less busy: for that, close the dashboard in the Pi's
+own browser (use the laptop or phone), cool the Pi (heatsink/fan), or use basic mode.
+
+### Basic mode (`--basic`)
+
+```bash
+python3 simplified_code.py --basic
+```
+
+Starts only: motors (all moves, speed, distances), sensors (sonars, IR edge, encoders, IMU, touch pad, lift
+detection), the obstacle map from the sensors (sensor fusion), the obstacle/edge safety stops, and the dashboard
+(camera-less). It sets `--no-camera --no-detect --no-oled --no-bluetooth --no-ai --https-port 0` and skips tasks +
+reminders, faces, focus timer, face me + greeter, the assistant and `extra_features` (phone, gestures, rock paper
+scissors, web APIs, ideas, sounds, dance). Commands for those answer that the feature is not available (each was
+already optional: `self.<feature> is None`). `/api/state` → `basic: true`, and the CLI header says `(BASIC)`.
+
+On the Pi in simulation: 5 threads instead of 23. On the real robot the big saving is the camera + detector
+(~50-70 % of a core) and the OLED.
+
+### Ignore obstacles (`obstacles ignore`)
+
+| command | effect |
+| --- | --- |
+| `obstacles` | shows whether obstacle stops are on |
+| `obstacles ignore` (or `off`) | the sonars no longer stop or refuse a move; a "sonar/obstacle" block message is cleared |
+| `obstacles on` (or `watch`) | back to normal |
+| `--ignore-obstacles` | start with them ignored |
+| dashboard | **Obstacles: Stop for them / Ignore** under the speed slider; a red banner while ignored; the sensor card says "obstacle stops OFF" |
+
+How: `Robot.ignore_obstacles`; `why_unsafe` → `need_clear` returns "" while it is set. That covers both the check
+before a move starts and the 50 Hz check during it, for every direction. **Still active:** desk edges (IR), lifted,
+tilted, bump (IMU jolt), stuck wheel, the move's time/encoder limits. The sonars still feed the map. The AI cannot
+change it (`obstacles` is not in `AI_COMMANDS`). `go to <thing>` relies on the front sonar to stop ~20 cm short, so
+with obstacles ignored it drives until its distance/time limit: use it only with obstacle stops on.
+
+Use case: a dead or unplugged sonar (right now GPIO 11, the front one) otherwise blocks every move in its direction.
+
+Test (simulation, box 30 cm ahead, `forward 2`): stops on → `STOPPED: front obstacle at 20 cm` after 9 cm;
+ignored → drove the full 25 cm, `blocked` empty. `tests/test_simplified_fixes.py`: 11 passed, 2 skipped.
+Backup of the previous version: `legacy/simplified_code_backup_2026-11-25.py`.
+
+### Presentation mode hides what isn't working (25 Nov 2026)
+
+In presentation mode (**▶ Present**, or `?present=1`) the page now hides everything that is not working, on top of
+the notes, banner and error texts it already hid. The normal view is unchanged (it still shows what is broken and
+why, which is what you want while fixing things).
+
+How: `renderBroken(s)` runs after every `/api/state` refresh, after `renderCore` (which resets the sonar/IR shapes'
+classes). It marks whole cards with `.broken` and single readings with `.brk`; one CSS rule,
+`.presenting .broken, .presenting .brk {display:none}`, hides them only while presenting.
+
+| hidden while presenting | when |
+| --- | --- |
+| Camera card | no frames arriving (off, unavailable, camera busy) |
+| Assistant, Phone, Gestures, Rock paper scissors, APIs, Ideas, Focus, Tasks, Dance & sounds cards | the feature was not started (e.g. `--basic`) or failed to start; Phone also when Bluetooth has an error |
+| IMU card | no IMU or it is not answering |
+| Wheel encoders card | encoders unavailable |
+| OLED screen card | disabled, error, or no real screen on the robot |
+| Accounts | tiles that are not connected (no key / web APIs not started); the whole card if none is |
+| a sonar's beam + distance | that sonar has no reading (e.g. the dead front sonar, GPIO 11) |
+| an IR dot + its row | that IR sensor is unreadable |
+| "sonars … silent" row, touch pad row | a sonar is silent / the touch pad is unavailable |
+| object detection line + button (camera card) | no detection model |
+| AI brains in the Assistant header | brains without a key or with an error |
+
+Tested in simulation with the front sonar and rear IR patched to "no reading": normal view showed them, presentation
+view hid the beam, the IR dot and both rows; with `--basic` every card of a feature that is not started was hidden.
+
+### Camera video reconnects by itself (25 Nov 2026)
+
+**Bug:** the dashboard's camera picture froze ("not updating") and stayed frozen. The page set the video
+(`<img src="/stream.mjpg">`, one endless MJPEG connection) only once. When that connection ended (the robot program
+was restarted with the tab still open, a Wi-Fi drop, a stalled connection) the browser kept the last frame and
+nothing ever reconnected, while the rest of the page (polled every 0.3 s) kept updating. On the Pi the robot side
+was fine: 92 distinct frames in 8 s on `/stream.mjpg`, detection at 3.3/s.
+
+**Fix (page only, `camVideo`):** the video reconnects (`/stream.mjpg?t=<now>`, a fresh connection) when
+1. the robot restarted: `/api/state` now carries `boot` (`BOOT_ID`, the start time), and a new value reconnects;
+2. the `<img>` reports an error: retry after 1.5 s;
+3. the picture has not changed for `CAM_STALL_MS` (4 s) while `camera_live` is true: once a second the page draws a
+   16x12 copy of the image on a canvas and compares it with the last one. Real camera frames always differ a little
+   (sensor noise), so an identical copy means the stream is stuck. At most one reconnect per 4 s; skipped while the
+   tab is hidden.
+When the camera stops (`camera_live` false) the video is removed and the placeholder shown again.
+
+**Test** (headless Edge driven over the DevTools protocol, fake camera with a moving bar, `scratchpad cdp_test.py`):
+
+| | old version | new version |
+| --- | --- | --- |
+| streaming normally (6 s) | 5 picture changes | 5 |
+| after restarting the robot program (10 s) | **0** (frozen for good) | 9 (back within ~1 s) |
+| stream connection stalled (10 s) | 0 | 6 (reconnected after ~4 s) |
+
+## Camera upside down (invert) and SLAM (25 Nov 2026)
+
+### Invert (on by default)
+
+The camera is mounted upside down, so every frame is rotated 180 deg **at the source** (`Camera._run` ->
+`rotate180`, `cv2.flip(img, -1)`; numpy fallback): the dashboard video, photos, object detection, face finding and
+the object bearings (left/right) all see it upright. 0.13 ms per 640x480 frame on the laptop.
+
+| | |
+| --- | --- |
+| `invert` / `invert on` / `invert off` (also `flip`, `camera invert`) | toggle / set it while running |
+| `--no-invert` | start with the picture as the camera gives it |
+| dashboard | **⟲ Upside down** button in the Camera card (blue while inverted); `/api/state` → `camera_inverted` |
+
+Test (fake camera with a white block in the sensor's top-left corner): `invert=True` → block at the bottom-right of
+`camera.frame`, `False` → top-left, `invert` toggled it both ways, frames stay contiguous (needed by NCNN and JPEG).
+
+### SLAM (`slam on`, `--slam`, dashboard)
+
+Sonar **correlative scan matching** (`class Slam`, its own thread, started after `prioritize_motors` so it runs at
+nice 10 and never delays the motors). Off by default; also available in basic mode (it is mapping).
+
+1. Every 0.1 s (`SLAM_COLLECT_S`) it turns the current sonar echoes (closer than 1.9 m) into world points using the
+   current pose. Not while turning: one sensor pings only every ~0.3 s, so at 90 deg/s an echo would be placed with a
+   heading up to ~27 deg newer than the one it was measured at (smeared ~10 cm).
+2. Points older than 2 s (`SLAM_WINDOW_S`) leave the scan and are added to SLAM's own **reference grid** (5 cm
+   cells, count per cell, capped at 30). The scan is therefore matched against older evidence only; matching against
+   the live map would always say "no shift", because the newest echoes have just been painted into it.
+3. Every 0.5 s (`SLAM_MATCH_S`), with at least 6 points: try every shift of +-4 cm in x and y (1 cm steps) and every
+   heading change of -3, -1.5, 0, +1.5, +3 deg (about the robot): 405 candidates. Score = points landing on reference
+   cells with >= 3 older echoes. Ties go to the smallest correction.
+4. Apply only if the best beats "no shift" by at least max(2 points, 15 % of the points) and puts >= 30 % of the
+   points on obstacles. Then **half** of it (`SLAM_GAIN`) is applied to `robot.pose` under the robot lock (the 50 Hz
+   loop keeps integrating from the corrected pose) and to the buffered scan points.
+5. It tracks the uncorrected pose too ("wheels + gyro alone": each odometry step since the last sample, applied
+   without corrections), for comparison.
+6. `map reset` and being put down somewhere new clear the scan, reference grid and comparison path.
+
+Commands: `slam` (status line), `slam on`, `slam off`. Dashboard, Map card: **SLAM Off / On**, the status
+("pose agrees with the map", "corrected 1.5 cm, -0.8 deg", match %, corrections and their total), and on the map a
+dashed orange line = the path from wheels + gyro alone next to the normal (SLAM-corrected) path, with how far apart
+they are now. `/api/state` → `slam`; `/api/map` → `raw_trail`.
+
+**Limits.** Four sonars see very little: it can only correct while known obstacles are in sonar range, and on an
+empty desk it does nothing (status "waiting for echoes"). It corrects slow drift (wheel slip, encoder error, gyro
+drift), not a big jump (the search is +-4 cm / +-3 deg per 0.5 s). It can make small false corrections of 1-2 cm.
+
+**Test** (simulation with a TRUE pose integrated from the simulated wheels, sonars computed from the truth, and an
+injected drift of 2 cm/s sideways in the robot's estimate while moving; 24 short moves: turns, forward, back):
+
+| | SLAM off | SLAM on |
+| --- | --- | --- |
+| drift 2 cm/s | 23.9 cm off | **5.3 cm** off (28 corrections in 58 matches) |
+| no drift | 0.0 cm | 1.1-1.9 cm (small false corrections) |
+| time per match (laptop) | | 2-10 ms |
+
+Before the "not while turning" and "15 % better" rules the no-drift case had 3.2 cm of false corrections.
+
+## Motors wired backwards (25 Nov 2026)
+
+**Symptom:** pressing Forward drove the robot backwards while the sensors read right. All the code, and the Pi's
+`deskbot/robot_config.py`, use the same pins (left IN1/IN2 = GPIO 22/23, right IN3/IN4 = GPIO 27/17), so both
+motors' leads are the other way round on the L298N outputs. Besides being confusing it was unsafe: a "forward" move
+is guarded by the FRONT sonar and IR while the robot actually drives backwards.
+
+**Fix:** `RealHardware.drive` flips the sign of a side marked reversed, at the very last step before the pins. Every
+layer above (directions, the safety checks, odometry from the commanded motion, turns) stays in the robot's own
+frame, so after the fix the front sensors guard the direction the robot really moves.
+
+| | |
+| --- | --- |
+| `motors` | shows each side; hints: Forward goes backwards -> `motors reverse`; Forward spins -> one side |
+| `motors reverse` / `motors normal` / `motors flip` [`left`\|`right`] | set or toggle both sides or one; stops any move first |
+| `--reverse-motors` | sets both reversed at start (and saves it) |
+| dashboard, Drive card | **Motors: Normal / Reversed** |
+| `motors.json` (next to the script) | `{"left": true, "right": true}`, written atomically, loaded at start |
+
+The simulator's motors are never miswired: the setting is kept there but not applied. The encoders are not flipped:
+they already count the real wheel direction (the pose was right). If, after reversing the motors, the pose moves
+backwards while the robot drives forwards, the encoder A/B wires are swapped too.
+
+Test (stand-in motors recording the pin calls): normal forward -> both `forward`; both reversed -> both `backward`,
+and a left turn becomes left `forward` / right `backward`; one side reversed flips only that side; `motors reverse`
+/ `normal right` / `normal` wrote and read back `motors.json` correctly. On the Pi `~/motors.json` was created with
+both sides reversed (25 Nov).
 
 ## Threads
 

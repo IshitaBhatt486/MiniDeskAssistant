@@ -4,6 +4,9 @@ simplified_code.py - one-file robot control: typed CLI + web dashboard (21 Nov 2
     python3 legacy/simplified_code.py               # on the Pi (real motors and sensors)
     python3 legacy/simplified_code.py --sim         # laptop: simulated robot on a simulated desk
     python3 legacy/simplified_code.py --port 8080 --no-camera --no-edge
+    python3 legacy/simplified_code.py --basic       # only motors, sensors, sensor map, obstacle stops (fastest)
+    python3 legacy/simplified_code.py --slam        # SLAM on: sonar scan matching corrects the pose
+    python3 legacy/simplified_code.py --ignore-obstacles   # sonars never stop a move ('obstacles on' undoes it)
     python3 legacy/simplified_code.py --oled-driver sh1106 --oled-rotate 2   # 1.3" screen, mounted upside down
 
 Type commands at the "robot>" prompt (also accepted by the dashboard):
@@ -35,6 +38,12 @@ Type commands at the "robot>" prompt (also accepted by the dashboard):
     touch                touch pad state and counts
     sim touch [hold]     (simulation only) tap / hold the touch pad
     lift [on|off]        lift detection: state / turn it on or off (on by default)
+    motors [reverse|normal] [left|right]   a motor wired backwards: flip its direction in software (saved in
+                         motors.json). 'forward' goes backwards -> 'motors reverse'; 'forward' spins -> one side
+    slam [on|off]        SLAM: sonar scan matching corrects the wheel/gyro pose against the map (off by default)
+    invert [on|off]      camera picture rotated 180 deg (ON by default: camera mounted upside down; --no-invert)
+    obstacles [ignore|on]  sonar obstacle stops: state / ignore them / watch again (desk edges, lift, tilt and
+                         bumps still stop it; also --ignore-obstacles and the dashboard's Obstacles button)
     see                  what the camera recognises, where (also 'look', 'what do you see')
     detect [on|off]      object detection status / switch it
     photo                save the camera picture to photos/ (also the dashboard's Take photo button)
@@ -157,6 +166,7 @@ SPEED_OF_SOUND = 343.0      # m/s at ~20 C
 FLOOR_VALUE = 0             # IR output LOW = floor detected
 STATUS_SHARE_S = 0.1        # the OLED (10/s) and every dashboard tab share one status snapshot this fresh
 LOOP_HZ = 50
+BOOT_ID = f"{time.time():.3f}"   # changes on every start: the dashboard reconnects its video when it sees a new one
 MAX_DURATION = 30.0         # s, longest single move
 
 # Dead reckoning (same rough calibration as dashboard/mapping.py)
@@ -283,6 +293,7 @@ PHOTO_DIR = _HERE / "photos"  # 'photo' / the dashboard button save here
 ERRORS_FILE = _HERE / "errors.log"
 # Bluetooth phone presence (24 Nov 2026, run_prototype presence/ble.py numbers)
 PHONE_FILE = _HERE / "phone.json"           # which phone to listen for
+MOTORS_FILE = _HERE / "motors.json"         # {"left": bool, "right": bool}: motor wired backwards ('motors reverse')
 # Gestures (laptop camera, recognised in the browser) + rock paper scissors (24 Nov 2026)
 GESTURES_FILE = _HERE / "gestures.json"     # what each gesture does
 # Web APIs + ideas (24 Nov 2026)
@@ -594,6 +605,21 @@ class SonarScanner:
                     pass
 
 
+def load_motor_reversal(path=MOTORS_FILE):
+    """{"left": bool, "right": bool} from motors.json (missing/bad file = both normal)."""
+    try:
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        return {"left": bool(d.get("left")), "right": bool(d.get("right"))}
+    except (OSError, ValueError, AttributeError):
+        return {"left": False, "right": False}
+
+
+def save_motor_reversal(rev, path=MOTORS_FILE):
+    tmp = Path(path).with_suffix(".tmp")
+    tmp.write_text(json.dumps(rev), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 class RealHardware:
     """gpiozero devices. Each sensor is opened on its own so one bad part does not stop the rest."""
 
@@ -602,6 +628,7 @@ class RealHardware:
     def __init__(self, use_encoders=True, use_imu=True, imu_address=IMU_ADDRESS, touch_pin=TOUCH_PIN):
         from gpiozero import DigitalInputDevice, Motor  # raises off the Pi
 
+        self.reversed = load_motor_reversal()   # a motor wired backwards: its sign is flipped in drive()
         self.left = Motor(**LEFT_MOTOR)
         try:
             self.right = Motor(**RIGHT_MOTOR)
@@ -692,6 +719,12 @@ class RealHardware:
             self.ir_errors[name] = msg
 
     def drive(self, left, right):
+        """left/right: -1..1, + = the robot's forward. A side marked reversed (motors.json) gets the opposite
+        sign here, at the very last step, so everything above (directions, safety checks, odometry) stays right."""
+        if self.reversed["left"]:
+            left = -left
+        if self.reversed["right"]:
+            right = -right
         for motor, v in ((self.left, left), (self.right, right)):
             if v > 0:
                 motor.forward(min(v, 1.0))
@@ -747,6 +780,7 @@ class SimHardware:
     BOXES = [o[1] for o in OBJECTS]
 
     def __init__(self, use_imu=True):
+        self.reversed = {"left": False, "right": False}   # simulated motors are wired right: kept, never applied
         self.motors = (0.0, 0.0)
         self.calibration = load_encoder_calibration([SIM_CALIBRATION_FILE]) or dict(SIM_ENCODER)
         self.calibration_path = SIM_CALIBRATION_FILE
@@ -1143,9 +1177,22 @@ class Imu:
 # Camera (latest JPEG only)
 # =====================================================================
 
+def rotate180(img):
+    """Upside down (= flipped both ways), as a new contiguous array. cv2.flip is ~0.3 ms for 640x480 on a Pi 4."""
+    try:
+        import cv2
+
+        return cv2.flip(img, -1)
+    except ImportError:
+        import numpy as np
+
+        return np.ascontiguousarray(img[::-1, ::-1])
+
+
 class Camera:
-    def __init__(self, enabled=True):
-        self.jpeg = None
+    def __init__(self, enabled=True, invert=True):
+        self.invert = bool(invert)            # rotate 180 deg at the source (camera mounted upside down): the
+        self.jpeg = None                      # dashboard, photos, detection and object bearings all see it upright
         self.frame, self.frame_id = None, 0   # latest raw BGR frame, for the object detector
         self.viewers = 0                     # open /stream.mjpg connections: JPEGs are only made while > 0 ...
         self.want_until = 0.0                # ... or shortly after a /snapshot.jpg
@@ -1221,6 +1268,8 @@ class Camera:
             try:
                 while not self._stop.is_set():
                     img = read()
+                    if self.invert:
+                        img = rotate180(img)
                     self.frame, self.frame_id = img, self.frame_id + 1
                     if self.viewers <= 0 and time.monotonic() >= self.want_until:
                         time.sleep(0.08)       # nobody is watching: the detector only needs the raw frame
@@ -1914,6 +1963,220 @@ class ObstacleMap:
 
 
 # =====================================================================
+# SLAM (25 Nov 2026): sonar scan matching corrects the drift of the wheel/gyro pose against the map
+# =====================================================================
+SLAM_COLLECT_S = 0.1        # sample the sonar echoes this often
+SLAM_MATCH_S = 0.5          # try a correction this often
+SLAM_WINDOW_S = 2.0         # echo points from the last 2 s form the "scan"
+SLAM_XY_M, SLAM_XY_STEP_M = 0.04, 0.01            # search +-4 cm in x and y, 1 cm steps
+SLAM_TH_DEG = (-3.0, -1.5, 0.0, 1.5, 3.0)          # and these heading changes
+SLAM_MATURE = 3             # a reference cell counts as an established obstacle after this many older echoes
+SLAM_REF_MAX = 30           # evidence cap per reference cell
+SLAM_MIN_POINTS = 6         # fewer echo points than this: nothing to match
+SLAM_MIN_GAIN = 2           # the best shift must put this many MORE points on obstacles than no shift ...
+SLAM_MIN_GAIN_FRAC = 0.15   # ... and at least this share of all the points more
+SLAM_MIN_MATCH = 0.3        # ... and at least this share of the points on obstacles
+SLAM_GAIN = 0.5             # apply half the found correction each time (smooth, robust to one bad match)
+
+
+class Slam:
+    """Correlative scan matching on the sonar occupancy map, in its own (low-priority) thread.
+
+    The control loop keeps dead-reckoning the pose from the encoders + gyro (50 Hz) and painting the map with it.
+    This thread samples the sonar echo points (world x, y) every 0.1 s and, every 0.5 s, takes the last 2 s of them
+    as a scan. It tries every shift of +-4 cm (1 cm steps) and heading change of +-3 deg (about the robot), and
+    scores each by how many points land on ESTABLISHED obstacle cells of its own reference grid. Points enter that grid
+    only when they leave the 2 s window (at their corrected position), so a scan is matched against OLDER evidence
+    and the echoes just seen cannot vote for themselves (matching against the live map would always say "no shift"). If the best beats "no shift" by SLAM_MIN_GAIN
+    points and puts at least 30 % of the points on obstacles, half of it is applied to the robot's pose (and to the
+    buffered points). Ties go to the smallest correction. It also keeps the uncorrected ("odometry only") path for
+    comparison. Cost: 405 candidates x <= ~80 points, ~10-30 ms on a Pi 4 twice a second, outside the control loop.
+    Limits: four sonars see little, so it can only correct near known obstacles; on an empty desk it does nothing."""
+
+    def __init__(self, robot, enabled=False):
+        from collections import deque
+        self.robot, self.enabled = robot, bool(enabled)
+        self.lock = threading.Lock()
+        self.points = deque(maxlen=400)          # (t, x, y) echo points in world coordinates
+        self.ref = [[0] * MAP_N for _ in range(MAP_N)]   # older echoes per cell: what scans are matched against
+        self.raw_trail = deque(maxlen=TRAIL_N)   # the path as wheels + gyro alone would have it
+        self._raw = self._last = None
+        self.steps = self.corrections = 0
+        self.match = None
+        self.last = None                         # last applied correction (dx m, dy m, dth rad)
+        self.total = [0.0, 0.0, 0.0]
+        self.ms = None
+        self.status = "on" if self.enabled else "off"
+        self._stop = threading.Event()
+        threading.Thread(target=self._run, daemon=True, name="slam").start()
+
+    def set(self, on):
+        with self.lock:
+            self.enabled = bool(on)
+            self._clear()
+            self.status = "on - collecting echoes" if on else "off"
+
+    def reset(self):
+        """Fresh map / pose (map reset, put down somewhere new): forget the scan and the comparison path."""
+        with self.lock:
+            self._clear()
+
+    def _clear(self):
+        self.points.clear()
+        self.ref = [[0] * MAP_N for _ in range(MAP_N)]
+        self.raw_trail.clear()
+        self._raw = self._last = None
+        self.total = [0.0, 0.0, 0.0]
+        self.last, self.match = None, None
+
+    def _run(self):
+        next_match = time.monotonic() + SLAM_MATCH_S
+        while not self._stop.wait(SLAM_COLLECT_S):
+            if not self.enabled:
+                continue
+            try:
+                self._collect()
+                if time.monotonic() >= next_match:
+                    next_match = time.monotonic() + SLAM_MATCH_S
+                    self._match()
+            except Exception as exc:              # never let a SLAM bug take anything else down
+                self.status = f"error: {type(exc).__name__}: {exc}"
+                _save_traceback("slam", exc)
+
+    def _collect(self):
+        r = self.robot
+        with r.lock:
+            pose, sonar = r.pose, dict(r.readings.get("sonar") or {})
+            paused = r.lift["lifted"] or bool(r.cal and r.cal.get("mode") == "hand")
+            turning = bool(r.move and r.move["dir"] not in ("forward", "backward"))
+        if paused:
+            return
+        x, y, th = pose
+        now = time.monotonic()
+        with self.lock:
+            if self._last is None:
+                self._raw = self._last = pose
+            else:                                 # move the raw pose by the odometry step since last time
+                lx, ly, lth = self._last
+                dxw, dyw = x - lx, y - ly
+                c, s = math.cos(-lth), math.sin(-lth)
+                fx, fy = c * dxw - s * dyw, s * dxw + c * dyw          # step in the robot's frame
+                rx, ry, rth = self._raw
+                rth2 = rth + math.atan2(math.sin(th - lth), math.cos(th - lth))
+                self._raw = (rx + math.cos(rth) * fx - math.sin(rth) * fy,
+                             ry + math.sin(rth) * fx + math.cos(rth) * fy, rth2)
+                self._last = pose
+            rx, ry, _ = self._raw
+            if not self.raw_trail or math.hypot(rx - self.raw_trail[-1][0], ry - self.raw_trail[-1][1]) >= 0.02:
+                self.raw_trail.append((round(rx, 3), round(ry, 3)))
+            for name, d in sonar.items():
+                # while turning, a sonar reading (one ping per sensor every ~0.3 s) is older than the heading it
+                # would be placed with: at 90 deg/s that smears echoes by up to 10 cm, so they are skipped
+                if d is None or d >= SONAR_MAX * 0.95 or turning:
+                    continue
+                ang, off = SONAR_MOUNT[name]
+                a = th + ang
+                self.points.append((now, x + (off + d) * math.cos(a), y + (off + d) * math.sin(a)))
+            half = MAP_N / 2
+            while self.points and now - self.points[0][0] > SLAM_WINDOW_S:
+                _, px, py = self.points.popleft()          # leaves the scan window: becomes reference evidence
+                i, j = int(px / CELL_M + half), int(py / CELL_M + half)
+                if 0 <= i < MAP_N and 0 <= j < MAP_N:
+                    self.ref[j][i] = min(SLAM_REF_MAX, self.ref[j][i] + 1)
+
+    def _match(self):
+        t0 = time.perf_counter()
+        r = self.robot
+        with self.lock:
+            pts = [(px, py) for _, px, py in self.points]
+        if len(pts) < SLAM_MIN_POINTS:
+            self.status = f"on - waiting for echoes ({len(pts)} points)"
+            return
+        grid = self.ref
+        with r.lock:
+            x0, y0, th0 = r.pose
+        half, steps = MAP_N / 2, int(round(SLAM_XY_M / SLAM_XY_STEP_M))
+        shifts = [k * SLAM_XY_STEP_M for k in range(-steps, steps + 1)]
+        best = None                               # (score, -size, dx, dy, dth)
+        base = 0
+        for dth_deg in SLAM_TH_DEG:
+            dth = math.radians(dth_deg)
+            c, s = math.cos(dth), math.sin(dth)
+            rot = [(x0 + c * (px - x0) - s * (py - y0), y0 + s * (px - x0) + c * (py - y0)) for px, py in pts]
+            for dx in shifts:
+                for dy in shifts:
+                    score = 0
+                    for px, py in rot:
+                        i, j = int((px + dx) / CELL_M + half), int((py + dy) / CELL_M + half)
+                        if 0 <= i < MAP_N and 0 <= j < MAP_N and grid[j][i] >= SLAM_MATURE:
+                            score += 1
+                    size = abs(dx) + abs(dy) + abs(dth) * 0.1
+                    cand = (score, -size, dx, dy, dth)
+                    if best is None or cand[:2] > best[:2]:
+                        best = cand
+                    if dx == 0 and dy == 0 and dth_deg == 0:
+                        base = score
+        score, _, dx, dy, dth = best
+        self.steps += 1
+        self.match = score / len(pts)
+        self.ms = (time.perf_counter() - t0) * 1000
+        if score < base + max(SLAM_MIN_GAIN, SLAM_MIN_GAIN_FRAC * len(pts)) or self.match < SLAM_MIN_MATCH or (dx == 0 and dy == 0 and dth == 0):
+            self.status = f"on - pose agrees with the map ({self.match * 100:.0f} % of {len(pts)} echoes on obstacles)"
+            return
+        gx, gy, gth = dx * SLAM_GAIN, dy * SLAM_GAIN, dth * SLAM_GAIN
+        with r.lock:                              # the control loop keeps integrating from the corrected pose
+            x, y, th = r.pose
+            c, s = math.cos(gth), math.sin(gth)   # rotate about where the robot was when matching started
+            r.pose = (x0 + c * (x - x0) - s * (y - y0) + gx, y0 + s * (x - x0) + c * (y - y0) + gy,
+                      math.atan2(math.sin(th + gth), math.cos(th + gth)))
+        with self.lock:
+            c, s = math.cos(gth), math.sin(gth)
+            self.points = type(self.points)(((t, x0 + c * (px - x0) - s * (py - y0) + gx,
+                                              y0 + s * (px - x0) + c * (py - y0) + gy) for t, px, py in self.points),
+                                            maxlen=self.points.maxlen)
+            if self._last is not None:            # the correction is not odometry: keep it out of the raw path
+                lx, ly, lth = self._last
+                self._last = (x0 + c * (lx - x0) - s * (ly - y0) + gx, y0 + s * (lx - x0) + c * (ly - y0) + gy,
+                              lth + gth)
+        self.corrections += 1
+        self.last = (gx, gy, gth)
+        self.total = [self.total[0] + gx, self.total[1] + gy, self.total[2] + gth]
+        self.status = (f"on - corrected {math.hypot(gx, gy) * 100:.1f} cm, {math.degrees(gth):+.1f} deg "
+                       f"({self.match * 100:.0f} % of {len(pts)} echoes on obstacles)")
+
+    def info(self):
+        with self.lock:
+            raw = self._raw
+            drift = None
+            if raw is not None:
+                x, y, th = self.robot.pose
+                drift = math.hypot(x - raw[0], y - raw[1])
+            return {"enabled": self.enabled, "status": self.status, "points": len(self.points),
+                    "match": self.match, "corrections": self.corrections, "steps": self.steps, "ms": self.ms,
+                    "last": None if self.last is None else {"dx_cm": self.last[0] * 100, "dy_cm": self.last[1] * 100,
+                                                            "dth_deg": math.degrees(self.last[2])},
+                    "total": {"dx_cm": self.total[0] * 100, "dy_cm": self.total[1] * 100,
+                              "dth_deg": math.degrees(self.total[2])},
+                    "drift_cm": None if drift is None else drift * 100}
+
+    def trail(self):
+        with self.lock:
+            return list(self.raw_trail) if self.enabled else []
+
+    def line(self):
+        i = self.info()
+        if not i["enabled"]:
+            return "SLAM is off ('slam on' to correct the pose with the sonar map)"
+        return (f"SLAM: {i['status']} | {i['corrections']} corrections in {i['steps']} matches"
+                + (f", total {math.hypot(i['total']['dx_cm'], i['total']['dy_cm']):.1f} cm / "
+                   f"{i['total']['dth_deg']:+.1f} deg" if i["corrections"] else "")
+                + (f", {i['ms']:.0f} ms per match" if i["ms"] is not None else ""))
+
+    def close(self):
+        self._stop.set()
+
+
+# =====================================================================
 # Noise filter (24 Nov 2026, from run_prototype runtime/sensor_filter.py): cleans readings before safety uses them
 # =====================================================================
 
@@ -2040,6 +2303,9 @@ class Robot:
     def __init__(self, hw, check_edges=True):
         self.hw = hw
         self.check_edges = check_edges
+        self.ignore_obstacles = False        # 'obstacles ignore' / --ignore-obstacles: sonars never stop a move
+        self.basic = False                   # --basic: only motors, sensors, map and obstacle stops were started
+        self.slam = None                     # set by main() (Slam: sonar scan matching corrects the pose)
         self.speed = 0.5
         self.pose = (0.0, 0.0, 0.0)
         self.move = None                     # {"dir", "until", "label"}
@@ -2124,6 +2390,8 @@ class Robot:
             return ""
 
         def need_clear(name, limit):
+            if self.ignore_obstacles:        # the user turned obstacle stops off; edges, lift, tilt, bump still stop
+                return ""
             d = sonar.get(name)
             if d is None:
                 if sonar_optional:
@@ -2312,6 +2580,8 @@ class Robot:
         self.map.reset()
         self.objects.reset()
         self.pose = (0.0, 0.0, 0.0)
+        if self.slam is not None:
+            self.slam.reset()
         self.enc_start = self.enc_counts
         self.event(f"Put down after {up_for:.1f} s: new spot - fresh map, pose (0, 0)")
         if self.oled is not None:
@@ -2558,6 +2828,7 @@ class Robot:
                 "mode": self.hw.mode, "speed": self.speed,
                 "pose": {"x": x, "y": y, "theta": th},
                 "sonar": r["sonar"], "floor": r["floor"], "edges_checked": self.check_edges,
+                "obstacles_ignored": self.ignore_obstacles, "basic": self.basic,
                 "move": None if mv is None else {"label": mv["label"], "dir": mv["dir"],
                                                  "left_s": max(0.0, mv["until"] - time.monotonic())},
                 "blocked": self.blocked, "events": list(self.events),
@@ -2587,6 +2858,7 @@ class Robot:
             "sounds": self.sounds.info() if self.sounds else None,
             "accounts": accounts_info(self),
             "vision": self.detector.info() if self.detector else None,
+            "slam": self.slam.info() if self.slam else None,
         })
         self._status_cache = (now, core)
         return core
@@ -3125,6 +3397,62 @@ class Robot:
                 if self.dance is not None and self.dance.active():    # also from the AI ("stop dancing")
                     self.dance.stop()
                 return self.stop()
+            if cmd in ("motors", "motor"):
+                rev = getattr(self.hw, "reversed", None)
+                if rev is None:
+                    return "Motor reversal is not supported here"
+                sides = [a for a in args[1:] if a in ("left", "right")] or ["left", "right"]
+                if args[:1] in (["reverse"], ["reversed"], ["normal"], ["flip"]):
+                    self.stop()
+                    for side in sides:
+                        rev[side] = (not rev[side]) if args[0] == "flip" else args[0] != "normal"
+                    try:
+                        save_motor_reversal(rev)
+                        saved = f"saved in {MOTORS_FILE.name}"
+                    except OSError as exc:
+                        saved = f"NOT saved ({exc})"
+                    self.event(f"Motors: left {'REVERSED' if rev['left'] else 'normal'}, "
+                               f"right {'REVERSED' if rev['right'] else 'normal'} ({saved})")
+                    sim = " (simulation: its motors are never miswired, so this changes nothing here)" \
+                        if self.hw.mode == "simulation" else ""
+                    return (f"Left motor {'reversed' if rev['left'] else 'normal'}, right motor "
+                            f"{'reversed' if rev['right'] else 'normal'} - {saved}. Try 'forward 0.3'{sim}")
+                return (f"Left motor {'REVERSED' if rev['left'] else 'normal'}, right motor "
+                        f"{'REVERSED' if rev['right'] else 'normal'}. If 'forward' drives backwards: 'motors reverse'; "
+                        f"if 'forward' spins: 'motors reverse left' (or right)")
+            if cmd == "slam":
+                if self.slam is None:
+                    return "SLAM is not available"
+                if args[:1] in (["on"], ["start"]):
+                    self.slam.set(True)
+                    self.event("SLAM on: the sonar map corrects the pose")
+                    return "SLAM on: drive around known obstacles and it corrects wheel/gyro drift against the map"
+                if args[:1] in (["off"], ["stop"]):
+                    self.slam.set(False)
+                    self.event("SLAM off")
+                    return "SLAM off: the pose comes from the wheels and gyro only"
+                return self.slam.line()
+            if cmd in ("invert", "flip") or (cmd == "camera" and args[:1] == ["invert"]):
+                cam = self.camera
+                if cam is None:
+                    return "No camera"
+                a = args[1:] if cmd == "camera" else args
+                cam.invert = (a[0] == "on") if a[:1] in (["on"], ["off"]) else not cam.invert
+                return f"Camera picture {'upside down (inverted)' if cam.invert else 'as the camera sees it'}"
+            if cmd == "obstacles":
+                if args[:1] in (["ignore"], ["off"]):
+                    self.ignore_obstacles = True
+                    if "sonar" in self.blocked or "obstacle" in self.blocked:
+                        self.blocked = ""
+                    self.event("Obstacle stops OFF: the sonars no longer stop moves (edges, lift, tilt, bump still do)")
+                    return "Ignoring obstacles: the sonars won't stop moves. Desk edges, lifting, tilt and bumps still stop it."
+                if args[:1] in (["on"], ["watch"], ["stop"]):
+                    self.ignore_obstacles = False
+                    self.event("Obstacle stops ON")
+                    return "Watching for obstacles again"
+                return ("Obstacles are IGNORED ('obstacles on' to watch again)" if self.ignore_obstacles else
+                        f"Obstacle stops are on ({STOP_DISTANCE * 100:.0f} cm front/rear, "
+                        f"{SIDE_STOP_DISTANCE * 100:.0f} cm sides). 'obstacles ignore' turns them off")
             if cmd == "speed":
                 if not args:
                     return f"Speed is {self.speed:.2f}"
@@ -3142,6 +3470,8 @@ class Robot:
                 return (f"[{s['mode']}] {mv} | speed {s['speed']:.2f}\n  sonar: {son}\n  IR: {flo}\n"
                         f"  pose: x {p['x']:.2f} m, y {p['y']:.2f} m, heading {math.degrees(p['theta']):.0f} deg\n"
                         f"  {self.encoder_line()}\n  {self.imu_line()}\n  {self.touch_line()}\n  {self.lift_line()}"
+                        + ("\n  OBSTACLES IGNORED: the sonars do not stop moves ('obstacles on')"
+                           if s["obstacles_ignored"] else "")
                         + (f"\n  last block: {s['blocked']}" if s["blocked"] else ""))
             if cmd == "encoders":
                 e = self.encoder_status()
@@ -3363,6 +3693,8 @@ class Robot:
                 with self.lock:
                     self.pose = (0.0, 0.0, 0.0)
                     self.enc_start = self.enc_counts
+                if self.slam is not None:
+                    self.slam.reset()
                 return "Map cleared, pose reset to (0, 0)"
             if cmd in ("ask", "hey", "ai", "heard"):         # 'heard': the dashboard's browser speech-to-text
                 if self.assistant is None:
@@ -3760,15 +4092,21 @@ color:var(--mut);font-size:12px;white-space:nowrap}
 .stopbig{border:0;border-radius:10px;background:var(--bad);color:#fff;font-weight:700;padding:9px 18px;cursor:pointer;letter-spacing:.03em}
 .stopbig:active{transform:scale(.97)}
 kbd{font:11px ui-monospace,monospace;padding:1px 5px;border-radius:4px;border:1px solid currentColor;opacity:.7;margin-left:6px}
-.banner{margin:12px 16px 0;padding:10px 14px;border-radius:10px;background:var(--warn-s);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+/* the warning banner floats at the bottom (25 Nov 2026): appearing/disappearing must not push the cards around */
+.banner{position:fixed;z-index:15;left:50%;bottom:16px;transform:translateX(-50%);width:min(900px,calc(100vw - 32px));
+  box-shadow:var(--shadow-h);padding:10px 14px;border-radius:10px;background:var(--warn-s);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
 .banner.bad{background:var(--bad-s);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent)}
-.grid{display:grid;gap:16px;align-items:start;grid-auto-flow:row dense;padding:14px 16px 24px;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));max-width:1500px;margin:0 auto}
+.grid{display:grid;gap:16px;align-items:start;grid-auto-flow:row;padding:14px 16px 24px;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));max-width:1500px;margin:0 auto}
 .card{background:var(--card);border:1px solid color-mix(in srgb,var(--line) 80%,transparent);border-radius:16px;padding:16px;box-shadow:var(--shadow);min-width:0;transition:box-shadow .2s,transform .2s,opacity .2s;animation:cardin .35s ease both}
 .card:hover{box-shadow:var(--shadow-h)}
 @keyframes cardin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.card{animation:none;transition:none}}
 .card h2{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:650;margin:0 0 12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em}
-.card h2 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400}
+.card h2 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* text that changes while running gets fixed space, so a card's height (and everything below it) stays put */
+#dets{height:26px;overflow:hidden;flex-wrap:nowrap!important}#detst,#phsig,#peoplest{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#photomsg{min-height:1.5em}#slamst{height:2.9em;overflow:hidden}#slamleg{height:1.5em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.objline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#notelist{max-height:160px;overflow:auto}
 .wide{grid-column:span 2}@media (max-width:700px){.wide{grid-column:auto}}
 .grip{display:none;cursor:grab;touch-action:none;user-select:none;font-size:15px;line-height:1;color:var(--mut);padding:2px 4px;margin-left:-4px;border-radius:6px}
 .grip:hover{background:var(--sub);color:var(--fg)}
@@ -3786,6 +4124,7 @@ kbd{font:11px ui-monospace,monospace;padding:1px 5px;border-radius:4px;border:1p
 .notes li.error{border-color:color-mix(in srgb,var(--bad) 40%,transparent)}.notes li.warn{border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
 .presenting [data-card=notes],.presenting #banner,.presenting #notechip,.presenting .err,.presenting .reply.bad,.presenting .hint.t-bad,
 .presenting .grip,.presenting .tools{display:none!important}
+.presenting .broken,.presenting .brk,.presenting #acctlist .off{display:none!important}
 .cam{position:relative;aspect-ratio:4/3;max-height:560px;margin:auto;border-radius:10px;overflow:hidden;background:#05070a;display:grid;place-items:center}
 .cam.off{aspect-ratio:auto;min-height:120px}
 .cam img{width:100%;height:100%;object-fit:contain;display:block}
@@ -3874,7 +4213,7 @@ svg.dial .lvl{fill:none;stroke-width:6;stroke-linecap:round}svg.dial text{font:6
   <span class="chip" id="conn"><i class="dot" id="conndot"></i><span id="modetxt">connecting…</span></span>
   <span class="chip" id="movechip">idle</span>
   <span class="spacer"></span>
-  <a class="chip hdrbtn hide" id="notechip" href="#notes" title="Problems the robot noticed (hidden in presentation mode)">⚠ <span id="notecount">0</span></a>
+  <a class="chip hdrbtn hide" id="notechip" href="#notes" onclick="notesOpen=!notesOpen;renderNotes(S&&S.notes);return false" title="Problems the robot noticed: click to show / hide them (hidden in presentation mode)">⚠ <span id="notecount">0</span></a>
   <button class="chip hdrbtn" id="editbtn" onclick="toggleEdit()" title="Move, resize and remove cards">✎ Layout</button>
   <button class="chip hdrbtn" onclick="toggleMenu()" title="Choose which cards are shown">＋ Cards</button>
   <button class="chip hdrbtn" id="presbtn" onclick="togglePresent()" title="Presentation mode: hide every error and warning">▶ Present</button>
@@ -3894,6 +4233,7 @@ svg.dial .lvl{fill:none;stroke-width:6;stroke-linecap:round}svg.dial text{font:6
   <div class="cam off" id="camwrap"><img id="cam" alt="" class="hide"><div class="ph" id="camph">Camera starting…</div></div>
   <div class="row" style="flex-wrap:wrap;margin-bottom:0"><span class="hint" id="detst"></span><span id="dets" style="display:flex;gap:6px;flex-wrap:wrap"></span>
     <span class="spacer"></span><button class="btn" style="padding:3px 10px" id="detbtn" onclick="send(this.dataset.cmd)">Detection</button>
+    <button class="btn" style="padding:3px 10px" id="invbtn" onclick="send('invert')" title="Rotate the camera picture 180° (for a camera mounted upside down). Also used by detection and photos">⟲ Upside down</button>
     <button class="btn pri" style="padding:3px 12px" id="photobtn" onclick="takePhoto()" title="Save the camera picture on the robot (photos/) and download it">📷 Take photo</button></div>
   <div class="hint" id="photomsg"></div>
   <div class="row" style="flex-wrap:wrap;margin-bottom:0"><button class="btn" style="padding:3px 10px" onclick="send('face me')">🙂 Face me</button>
@@ -3994,6 +4334,8 @@ svg.dial .lvl{fill:none;stroke-width:6;stroke-linecap:round}svg.dial text{font:6
   </div>
   <div class="row"><label>Speed</label><input type="range" id="speed" min="0.1" max="1" step="0.05"
     oninput="$('speedv').textContent=(+this.value).toFixed(2)" onchange="send('speed '+this.value)"><span class="val" id="speedv">–</span></div>
+  <div class="row"><label title="Use when Forward drives backwards: the motors are wired the other way round">Motors</label><div class="seg" id="motseg"><button data-m="normal" onclick="send('motors normal')">Normal</button><button data-m="reverse" onclick="send('motors reverse')" title="Flip both motors (saved on the robot)">Reversed</button></div><span class="hint" id="motst"></span></div>
+  <div class="row"><label>Obstacles</label><div class="seg" id="obst"><button data-o="on" class="on" onclick="send('obstacles on')" title="The sonars stop moves near obstacles">Stop for them</button><button data-o="ignore" onclick="send('obstacles ignore')" title="The sonars never stop a move. Desk edges, lifting, tilt and bumps still do">Ignore</button></div></div>
   <div class="row" style="flex-wrap:wrap"><label>Move for</label><div class="seg" id="durs">
     <button data-d="0.3">0.3 s</button><button data-d="1" class="on">1 s</button><button data-d="2">2 s</button><button data-d="4">4 s</button></div>
     <div class="seg" id="dists"><button data-d="5cm">5 cm</button><button data-d="10cm">10 cm</button><button data-d="20cm">20 cm</button><button data-d="30cm">30 cm</button></div></div>
@@ -4113,7 +4455,11 @@ svg.dial .lvl{fill:none;stroke-width:6;stroke-linecap:round}svg.dial text{font:6
   <div class="legend"><span><i style="background:var(--fg)"></i>obstacle</span><span><i style="background:var(--free)"></i>free</span>
     <span><i style="background:var(--acc)"></i>robot</span><span><i style="background:var(--warn);border-radius:50%"></i>object</span><span><i style="background:var(--bad)"></i>desk edge</span><span>grid 0.5 m</span>
     <button class="btn" style="margin-left:auto;padding:3px 10px" onclick="send('map reset')">Reset map</button></div>
-  <div class="hint" style="margin-top:6px">Objects: <span id="objlist">none yet</span></div>
+  <div class="row" style="flex-wrap:wrap;margin:8px 0 0"><label title="Simultaneous localisation and mapping: sonar scans are matched against the map to correct wheel and gyro drift">SLAM</label>
+    <div class="seg" id="slamseg"><button data-s="off" onclick="send('slam off')">Off</button><button data-s="on" onclick="send('slam on')">On</button></div>
+    <span class="hint" id="slamst" style="flex:1;min-width:180px"></span></div>
+  <div class="hint" id="slamleg" style="margin-top:4px"></div>
+  <div class="hint objline" style="margin-top:6px">Objects: <span id="objlist">none yet</span></div>
 </section>
 
 <section class="card" data-card="activity" data-title="Activity"><h2><span class="grip" title="Drag to move">⠿</span>Activity<span class="tools"><button class="tbtn" onclick="toggleWide(this)" title="Wider / narrower">⇔</button><button class="tbtn" onclick="hideCard(this)" title="Remove this card (＋ Cards brings it back)">✕</button></span></h2><ul class="log" id="log"></ul></section>
@@ -4185,7 +4531,8 @@ async function mic(){
   rec.start();recTimer=setTimeout(()=>{if(rec&&rec.state==='recording')rec.stop()},15000);
   micBusy('■ Stop');aiMsg('Listening… click Stop when you are done (max 15 s)')}
 function renderAI(a){if(!a)return;const b=a.brains||{};
-  $('aist').textContent=!a.enabled?'AI off (offline rules)':Object.keys(b).map(k=>`${k} ${b[k].key?(b[k].error?'⚠ error':'✓'):'(no key)'}`).join(' · ');
+  const ks=Object.keys(b).filter(k=>!presenting()||(b[k].key&&!b[k].error));
+  $('aist').textContent=!a.enabled?'AI off (offline rules)':ks.map(k=>`${k} ${b[k].key?(b[k].error?'⚠ error':'✓'):'(no key)'}`).join(' · ');
   $('aist').title=Object.keys(b).map(k=>`${k}: ${b[k].model}${b[k].error?' - '+b[k].error:''}`).join('\n');
   const key=a.last_id+'|'+(a.thinking||'');
   if(key!==aiDrawn){aiDrawn=key;const c=$('chat');
@@ -4381,10 +4728,36 @@ loadSongs();
 function renderAccounts(list){if(!list)return;const key=JSON.stringify(list);if(key===renderAccounts.k)return;renderAccounts.k=key;
   $('acctlist').innerHTML=list.map(a=>`<div class="${a.connected?'on':'off'}" title="${esc(a.name)}: ${esc(a.status)} · ${esc(a.for)}">`+
     `<i style="background:${esc(a.colour)}">${esc(a.glyph)}</i><b>${esc(a.name)}</b><small>${esc(a.status)}</small></div>`).join('')}
-const RENDERERS=[s=>renderSounds(s.sounds),s=>renderDance(s.dance),s=>renderApis(s.apis),s=>renderIdeas(s.ideas),s=>renderAccounts(s.accounts),s=>renderGestures(s.gestures),s=>renderRps(s.rps),s=>renderPhone(s.phone),s=>renderAI(s.assistant),s=>renderTasks(s.tasks),s=>renderFocus(s.focus),s=>renderPeople(s.people),s=>renderNotes(s.notes)];
+// presentation mode hides what isn't working (25 Nov 2026): cards get .broken, single readings .brk
+const presenting=()=>document.documentElement.classList.contains('presenting');
+// a flag that changes only after the new value has held STABLE_MS (the first value counts at once)
+const STABLE_MS=5000,STABLE={};
+function stable(k,v){const now=Date.now(),e=STABLE[k];
+  if(!e){STABLE[k]={v,cand:v,t:now};return v}
+  if(v!==e.cand){e.cand=v;e.t=now}else if(v!==e.v&&now-e.t>=STABLE_MS)e.v=v;
+  return e.v}
+function renderMotors(s){const r=s.motors_reversed||{},both=r.left&&r.right,none=!r.left&&!r.right;
+  document.querySelectorAll('#motseg button').forEach(b=>b.classList.toggle('on',b.dataset.m==='reverse'?both:none));
+  $('motst').textContent=both||none?'':(r.left?'left':'right')+' motor reversed'}
+function renderSlam(s){const sl=s.slam;
+  document.querySelectorAll('#slamseg button').forEach(b=>b.classList.toggle('on',(b.dataset.s==='on')===!!(sl&&sl.enabled)));
+  $('slamst').textContent=!sl?'not available':!sl.enabled?'off - pose from wheels + gyro':
+    sl.status+(sl.corrections?` · ${sl.corrections} corrections, total ${Math.hypot(sl.total.dx_cm,sl.total.dy_cm).toFixed(1)} cm / ${sl.total.dth_deg.toFixed(1)}°`:'');
+  $('slamleg').innerHTML=sl&&sl.enabled?'<span style="color:var(--warn)">- - -</span> path from wheels + gyro alone · <span style="color:var(--acc)">───</span> SLAM-corrected path'+(sl.drift_cm!=null?` · ${sl.drift_cm.toFixed(1)} cm apart now`:''):'';
+  const ib=$('invbtn');ib.classList.toggle('pri',!!s.camera_inverted);ib.classList.toggle('hide',!s.camera_live)}
+function renderBroken(s){const e=s.encoders||{},im=s.imu,o=s.oled,ph=s.phone,acc=s.accounts||[];
+  const bad={camera:!s.camera_live,assistant:!s.assistant,phone:!ph||!!ph.error,gestures:!s.gestures,rps:!s.rps,
+    dance:!s.dance&&!s.sounds,apis:!s.apis,ideas:!s.ideas,focus:!s.focus,tasks:!s.tasks,imu:!im||!im.ok,
+    'wheel-encoders':!e.counts,'oled-screen':!o||/^(disabled|error|off)/.test(o.status||'')||(!o.hardware&&s.mode!=='simulation'),accounts:!acc.some(a=>a.connected)};
+  for(const [id,b] of Object.entries(bad)){const c=document.querySelector(`[data-card="${id}"]`);if(c)c.classList.toggle('broken',stable('card:'+id,b))}
+  for(const n of ['front','rear','left','right']){const dead=stable('sonar:'+n,s.sonar[n]==null);['b-','t-'].forEach(p=>{const x=$(p+n);if(x)x.classList.toggle('brk',dead)})}
+  for(const n of ['front','rear']){const x=$('ir-'+n);if(x)x.classList.toggle('brk',stable('ir:'+n,s.floor[n]==null))}
+  const v=s.vision;['detst','dets','detbtn'].forEach(i=>{const x=$(i);if(x)x.classList.toggle('brk',!v||!v.model)})}
+const RENDERERS=[s=>renderMotors(s),s=>renderSlam(s),s=>renderSounds(s.sounds),s=>renderDance(s.dance),s=>renderApis(s.apis),s=>renderIdeas(s.ideas),s=>renderAccounts(s.accounts),s=>renderGestures(s.gestures),s=>renderRps(s.rps),s=>renderPhone(s.phone),s=>renderAI(s.assistant),s=>renderTasks(s.tasks),s=>renderFocus(s.focus),s=>renderPeople(s.people),s=>renderNotes(s.notes)];
 function render(){const s=S;if(!s)return;
   for(const f of RENDERERS){try{f(s)}catch(e){console.warn('card render failed',e)}}
-  try{renderCore(s)}catch(e){console.warn('render failed',e)}}
+  try{renderCore(s)}catch(e){console.warn('render failed',e)}
+  try{renderBroken(s)}catch(e){console.warn('broken marks failed',e)}}   // after renderCore: it resets the sonar/IR classes
 function renderCore(s){
   $('conndot').className='dot '+(s.mode==='simulation'?'sim':'on');$('modetxt').textContent=s.mode;
   $('movechip').textContent=s.move?`${s.move.label} · ${s.move.left_s.toFixed(1)} s`:'idle';
@@ -4397,19 +4770,24 @@ function renderCore(s){
   else if(s.calibration&&/^(Calibration failed|Turning calibration failed)/.test(s.calibration.last||'')){b.className='banner bad';b.textContent=s.calibration.last}
   else if(s.nav&&s.nav.active){b.className='banner';b.textContent=`Going to ${s.nav.target}: ${s.nav.step} - Space or STOP cancels`}
   else if(s.blocked){b.className='banner';b.textContent='Last move blocked: '+s.blocked}
+  else if(s.obstacles_ignored){b.className='banner bad';b.textContent='Obstacles are ignored: the sonars will not stop the robot (desk edges, lifting, tilt and bumps still do).'}
   else b.className='banner hide';
+  document.querySelectorAll('#obst button').forEach(x=>x.classList.toggle('on',(x.dataset.o==='ignore')===!!s.obstacles_ignored));
   // sensors
-  const L=s.limits||{};$('limits').textContent=`stops at ${Math.round((L.front||0)*100)} cm front/rear · ${Math.round((L.left||0)*100)} cm sides`;
+  const L=s.limits||{};$('limits').textContent=s.obstacles_ignored?'obstacle stops OFF':`stops at ${Math.round((L.front||0)*100)} cm front/rear · ${Math.round((L.left||0)*100)} cm sides`;
   for(const n of ['front','rear','left','right']){const v=s.sonar[n];cls($('b-'+n),'beam s-'+sonarClass(v,L[n]||0));
     $('t-'+n).textContent=v===null||v===undefined?'—':Math.round(v*100)+' cm'}
   for(const n of ['front','rear']){const v=s.floor[n];cls($('ir-'+n),v===null||v===undefined?'i-unk':v?'i-ok':'i-bad')}
   let kv='';for(const n of ['front','rear']){const v=s.floor[n];
-    kv+=`<dt>${n} IR${s.edges_checked?'':' (ignored)'}</dt><dd class="${v===null?'t-mut':v?'t-ok':'t-bad'}">${v===null?'unreadable':v?'floor':'EDGE'}</dd>`}
+    const k=stable('ir:'+n,v===null)?' brk':'';
+    kv+=`<dt class="${k}">${n} IR${s.edges_checked?'':' (ignored)'}</dt><dd class="${v===null?'t-mut':v?'t-ok':'t-bad'}${k}">${v===null?'unreadable':v?'floor':'EDGE'}</dd>`}
   const dead=['front','left','right','rear'].filter(n=>s.sonar[n]===null);
-  kv+=`<dt>sonars</dt><dd class="${dead.length?'t-warn':'t-ok'}">${dead.length?esc(dead.join(', '))+' silent':'all reading'}</dd>`;
+  const sk=stable('sonars-row',dead.length>0)?' brk':'';
+  kv+=`<dt class="${sk}">sonars</dt><dd class="${dead.length?'t-warn':'t-ok'}${sk}">${dead.length?esc(dead.join(', '))+' silent':'all reading'}</dd>`;
   kv+=`<dt>lift</dt><dd class="${!lf.enabled?'t-mut':lf.lifted?'t-bad':'t-ok'}">${!lf.enabled?'detection off':lf.lifted?'LIFTED '+(lf.up_s||0).toFixed(0)+' s':'on the desk'}${lf.enabled?` · ${lf.resets} fresh maps`:''}</dd>`;
   const tc=s.touch||{};
-  kv+=`<dt>touch pad</dt><dd class="${tc.touched==null?'t-mut':tc.touched?'t-ok':''}" title="${esc(tc.error||'')}">${tc.touched==null?'unavailable':tc.touched?'TOUCHED':'not touched'}${tc.touched==null?'':` · ${tc.pats} pats`}</dd>`;
+  const tk=stable('touch',tc.touched==null)?' brk':'';
+  kv+=`<dt class="${tk}">touch pad</dt><dd class="${tc.touched==null?'t-mut':tc.touched?'t-ok':''}${tk}" title="${esc(tc.error||'')}">${tc.touched==null?'unavailable':tc.touched?'TOUCHED':'not touched'}${tc.touched==null?'':` · ${tc.pats} pats`}</dd>`;
   kv+=`<dt>pose</dt><dd>${pose.x.toFixed(2)}, ${pose.y.toFixed(2)} m</dd><dt>heading</dt><dd>${(pose.theta*180/Math.PI).toFixed(0)}°</dd>`;
   $('senskv').innerHTML=kv;
   // encoders
@@ -4476,7 +4854,7 @@ function renderCore(s){
     show('carow',!driving);$('caunit').textContent=spin?'degrees':'cm';$('caval').placeholder=spin?'e.g. 340':'e.g. 24.5'}
   // camera
   $('camst').textContent=s.camera||'';const img=$('cam');
-  if(s.camera_live&&!img.src){img.src='/stream.mjpg';img.classList.remove('hide');$('camph').classList.add('hide');$('camwrap').classList.remove('off')}
+  camVideo(s,img);
   if(!s.camera_live&&!img.src)$('camph').textContent=s.camera==='off'?'Camera off (started with --no-camera)':'Camera: '+(s.camera||'starting…');
   // object detection
   const v=s.vision,db=$('detbtn');
@@ -4495,6 +4873,25 @@ function renderCore(s){
     return `<li class="${/STOPPED|stuck|error/i.test(x)?'stop':''}">${esc(x.slice(0,i))} <b>${esc(x.slice(i+1))}</b></li>`}).join('')||'<li>No events yet</li>';
 }
 
+// ----- camera video: reconnect when it stops (25 Nov 2026) -----
+// The <img> holds one endless MJPEG connection. Before, it was set once, so after a robot restart, a Wi-Fi drop or a
+// stalled connection the page kept showing the last frame forever. Now it reconnects when: the robot restarted
+// (new boot id), the connection errored/ended, or the picture has not changed for CAM_STALL_MS while the robot
+// says frames are arriving (checked by drawing a tiny copy of the image on a canvas every second; sensor noise makes
+// consecutive camera frames differ, so an identical copy means the stream is frozen).
+const CAM_STALL_MS=4000;let camBoot=null,camSig='',camSame=0,camRetry=0,camCan=null;
+function camConnect(img){img.src='/stream.mjpg?t='+Date.now();camSig='';camSame=Date.now()}
+function camVideo(s,img){
+  if(!s.camera_live){if(img.src){img.removeAttribute('src');img.classList.add('hide');$('camph').classList.remove('hide');$('camwrap').classList.add('off')}camBoot=s.boot;return}
+  if(!img.src||s.boot!==camBoot){camBoot=s.boot;camConnect(img);img.classList.remove('hide');$('camph').classList.add('hide');$('camwrap').classList.remove('off')}}
+setInterval(()=>{const img=$('cam');if(!img||!img.src||!S||!S.camera_live||document.hidden)return;
+  try{camCan=camCan||document.createElement('canvas');camCan.width=16;camCan.height=12;
+    const g=camCan.getContext('2d',{willReadFrequently:true});g.drawImage(img,0,0,16,12);
+    const sig=Array.from(g.getImageData(0,0,16,12).data).join(',');
+    if(sig!==camSig){camSig=sig;camSame=Date.now();return}}
+  catch(e){}                                   // nothing decoded yet: counts as "not changing"
+  if(Date.now()-camSame>CAM_STALL_MS&&Date.now()-camRetry>CAM_STALL_MS){camRetry=Date.now();console.info('camera stalled, reconnecting');camConnect(img)}},1000);
+$('cam').addEventListener('error',()=>setTimeout(()=>{const img=$('cam');if(S&&S.camera_live&&img.src)camConnect(img)},1500));   // the page's HTML is above this script
 async function state(){try{const t0=performance.now(),r=await fetch('/api/state');S=await r.json();rtt=performance.now()-t0;pose=S.pose;failCount=0;render()}
   catch(e){if(++failCount>2){$('conndot').className='dot off';$('modetxt').textContent='disconnected'}}}
 
@@ -4508,6 +4905,8 @@ async function drawMap(){try{const m=await (await fetch('/api/map')).json();cons
       g.fillRect(i*px,(n-1-j)*px,Math.ceil(px),Math.ceil(px))}g.globalAlpha=1}
   else for(let j=0;j<n;j++){const row=m.rows[j];for(let i=0;i<n;i++){const ch=row[i];if(ch===' ')continue;
     g.fillStyle=ch==='#'?col('--fg'):ch==='!'?col('--bad'):col('--free');g.fillRect(i*px,(n-1-j)*px,Math.ceil(px),Math.ceil(px))}}
+  if(m.raw_trail&&m.raw_trail.length>1){g.strokeStyle=col('--warn');g.globalAlpha=.8;g.lineWidth=1.5;g.setLineDash([5,4]);g.beginPath();   // SLAM on: wheels + gyro alone
+    m.raw_trail.forEach(([x,y],k)=>{const X=(x/m.cell+n/2)*px,Y=(n/2-y/m.cell)*px;k?g.lineTo(X,Y):g.moveTo(X,Y)});g.stroke();g.setLineDash([]);g.globalAlpha=1}
   if(m.trail&&m.trail.length>1){g.strokeStyle=col('--acc');g.globalAlpha=.45;g.lineWidth=2;g.beginPath();
     m.trail.forEach(([x,y],k)=>{const X=(x/m.cell+n/2)*px,Y=(n/2-y/m.cell)*px;k?g.lineTo(X,Y):g.moveTo(X,Y)});g.stroke();g.globalAlpha=1}
   g.strokeStyle=col('--line');g.lineWidth=1;const step=0.5/m.cell*px;
@@ -4533,8 +4932,9 @@ function oledTick(){if(oledBusy||document.hidden)return;oledBusy=true;const n=ne
 setInterval(oledTick,250);
 // ----- notes, presentation mode, card layout (24 Nov 2026) -----
 function store(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||'null');localStorage.setItem(k,JSON.stringify(v))}catch(e){return null}}
+let notesOpen=false;      // the Notes card opens from the ⚠ chip only: popping in by itself moved every card down
 function renderNotes(notes){notes=notes||[];const card=$('notes');
-  card.classList.toggle('hide',!notes.length||(LAYOUT.hidden||[]).includes('notes'));
+  card.classList.toggle('hide',!notesOpen||!notes.length||(LAYOUT.hidden||[]).includes('notes'));
   $('notechip').classList.toggle('hide',!notes.length);$('notecount').textContent=notes.length;
   const icon={error:'⛔',warn:'⚠️',info:'ℹ️'};const key=JSON.stringify(notes);if(key===renderNotes.k)return;renderNotes.k=key;
   $('notelist').innerHTML=notes.map(n=>`<li class="${esc(n.level)}"><span class="lv">${icon[n.level]||'•'}</span><span><b>${esc(n.feature)}</b> - ${esc(n.msg)}</span></li>`).join('');
@@ -4610,6 +5010,9 @@ def make_handler(robot, camera):
                     s = dict(robot.status(max_age=STATUS_SHARE_S))     # a copy: the snapshot is shared
                     s["camera"], s["camera_live"] = camera.status, camera.frame is not None
                     s["https_port"] = getattr(robot, "https_port", None)
+                    s["boot"] = BOOT_ID
+                    s["motors_reversed"] = dict(getattr(robot.hw, "reversed", {}) or {})
+                    s["camera_inverted"] = bool(robot.camera is not None and robot.camera.invert)
                     s["notes"] = collect_notes(robot, camera)
                     s["oled"] = robot.oled.info() if robot.oled else None
                     s["dance"] = robot.dance.info() if robot.dance else None    # fresh: the music syncs to it
@@ -4630,7 +5033,8 @@ def make_handler(robot, camera):
                     objs = robot.objects.describe(robot.pose)
                     conf, trail = robot.map.fused(objs)
                     return self._send(200, {"n": MAP_N, "cell": CELL_M, "rows": robot.map.rows(), "objects": objs,
-                                            "conf": conf, "trail": trail})
+                                            "conf": conf, "trail": trail,
+                                            "raw_trail": robot.slam.trail() if robot.slam else []})
                 if path.startswith("/photos/"):         # a saved photo, for the dashboard's download
                     name = path[len("/photos/"):]
                     f = PHOTO_DIR / name
@@ -7190,7 +7594,9 @@ def accounts_info(robot):
     api_state = {a["id"]: a for a in (apis.info()["apis"] if apis else [])}
     out = []
     for aid, name, glyph, colour, how, purpose in ACCOUNTS:
-        if how == "free":
+        if how == "free" and apis is None:      # web APIs not started (e.g. --basic): not usable
+            connected, status = False, "off"
+        elif how == "free":
             st = api_state.get(aid, {})
             connected = st.get("ok") is not False
             status = ("ok" if st.get("ok") else "error: " + st.get("msg", "") if st.get("ok") is False else "ready")
@@ -7603,6 +8009,26 @@ def use_project_venv(args):
         print(f"[start] could not start {venv} ({exc}) - continuing without object detection", flush=True)
 
 
+BACKGROUND_NICE = 10        # Linux niceness for everything that is not motors/sensors (0 = normal, 19 = lowest)
+GIL_SWITCH_S = 0.002        # Python hands the GIL to a waiting thread after this (default 5 ms)
+
+
+def prioritize_motors():
+    """Called by main() right after the motor/sensor threads exist (lgpio edges, sonars, IMU, the 50 Hz control
+    loop). It lowers the CALLING (main) thread's priority; on Linux the nice value is per thread and every thread
+    created afterwards inherits it, so the camera, detector (and NCNN's workers), dashboard, OLED, Bluetooth, AI
+    and the rest all run below the motor threads. Non-root may lower priority, never raise it, so this needs no
+    sudo. A shorter GIL switch interval lets the control loop get the interpreter sooner when it wakes up."""
+    sys.setswitchinterval(GIL_SWITCH_S)
+    if not hasattr(os, "setpriority") or not sys.platform.startswith("linux"):
+        return "motor priority: not supported here (Linux only); GIL switch 2 ms"
+    try:
+        os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), BACKGROUND_NICE)
+        return f"motor priority: motors/sensors at normal priority, everything else at nice {BACKGROUND_NICE}"
+    except OSError as exc:
+        return f"motor priority: could not lower the background threads ({exc})"
+
+
 def make_hardware(sim, use_encoders=True, use_imu=True, imu_address=IMU_ADDRESS, touch_pin=TOUCH_PIN):
     if sim:
         return SimHardware(use_imu)
@@ -7623,6 +8049,16 @@ def main():
     ap.add_argument("--no-dashboard", action="store_true")
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--no-edge", action="store_true", help="ignore the IR edge sensors")
+    ap.add_argument("--basic", action="store_true",
+                    help="basic mode: only motors, sensors (sonar, IR, encoders, IMU, touch, lift), the sensor map "
+                         "and obstacle stops, plus a dashboard without camera. Fastest; no camera/AI/OLED/extras")
+    ap.add_argument("--reverse-motors", action="store_true",
+                    help="both motors wired backwards: flip them (saved in motors.json; 'motors normal' undoes it)")
+    ap.add_argument("--slam", action="store_true", help="start with SLAM on ('slam on/off' or the dashboard switch it)")
+    ap.add_argument("--no-invert", action="store_true",
+                    help="show the camera picture as it comes (default: rotated 180 deg, camera mounted upside down)")
+    ap.add_argument("--ignore-obstacles", action="store_true",
+                    help="the sonars never stop a move (edges, lift, tilt, bump still do); 'obstacles on' undoes it")
     ap.add_argument("--speed", type=float, default=0.5, help="motor speed 0.1-1.0 (default 0.5)")
     ap.add_argument("--no-encoders", action="store_true", help="do not use the wheel encoders")
     ap.add_argument("--no-oled", action="store_true", help="do not use the OLED screen")
@@ -7645,6 +8081,9 @@ def main():
     ap.add_argument("--https-port", type=int, default=HTTPS_PORT,
                     help=f"https dashboard for the browser microphone (default {HTTPS_PORT}; 0 = off)")
     args = ap.parse_args()
+    if args.basic:              # everything that is not motors, sensors, map or obstacle stops is off
+        args.no_camera = args.no_detect = args.no_oled = args.no_bluetooth = args.no_ai = True
+        args.https_port = 0
     use_project_venv(args)          # before any hardware is opened: execv replaces this process
 
     install_crash_guards()
@@ -7652,6 +8091,15 @@ def main():
                        imu_address=int(args.imu_address, 0), touch_pin=None if args.no_touch else args.touch_pin)
     robot = Robot(hw, check_edges=not args.no_edge)
     robot.speed = max(0.1, min(1.0, args.speed))
+    robot.ignore_obstacles = args.ignore_obstacles
+    if args.reverse_motors:
+        log(f"[robot] {robot.execute('motors reverse')}")
+    rev = getattr(hw, "reversed", {})
+    if any(rev.values()):
+        log(f"[robot] motors: left {'REVERSED' if rev['left'] else 'normal'}, "
+            f"right {'REVERSED' if rev['right'] else 'normal'} (motors.json)")
+    robot.basic = args.basic
+    log(f"[robot] {prioritize_motors()}")
     robot.lift["enabled"] = not args.no_lift
     if not args.no_encoders:
         log(f"[encoders] {robot.calibration_summary()}")
@@ -7664,7 +8112,7 @@ def main():
         return obj
 
     camera_on = not (args.no_camera or args.no_dashboard)
-    camera = start("camera", Camera, enabled=camera_on) or Camera(enabled=False)
+    camera = start("camera", Camera, enabled=camera_on, invert=not args.no_invert) or Camera(enabled=False)
     robot.camera = camera if camera_on else None
     if args.sim and not args.model:      # the simulated desk's objects (a real model would see the laptop's room)
         robot.detector = start("object detection", SimDetector, robot, enabled=not args.no_detect)
@@ -7674,24 +8122,28 @@ def main():
     server = None if args.no_dashboard else guarded("dashboard", start_dashboard, robot, camera, args.host, args.port)
     robot.oled = start("OLED screen", Oled, robot, args.port, enabled=not args.no_oled, driver=args.oled_driver,
                        address=int(args.oled_address, 0), rotate=args.oled_rotate)
-    robot.tasks = guarded("tasks", TaskList)
-    if robot.tasks is not None:
-        start("reminders", Reminders, robot, robot.tasks)
-    faces = start("faces", FaceWatcher, camera if camera_on else None)
-    robot.focus = start("focus timer", FocusTimer, robot, faces)
-    robot.people = start("face me + greeter", People, robot, faces) if camera_on else None
-    robot.assistant = guarded("assistant", Assistant, robot, enabled=not args.no_ai, groq_model=args.groq_model,
-                              claude_model=args.claude_model)
-    if robot.assistant is not None:
-        log(f"[assistant] {robot.assistant.line()}")
-    extra_features(robot, args, start)   # newer features (24 Nov 2026), each guarded the same way
+    robot.slam = start("SLAM", Slam, robot, enabled=args.slam)   # mapping: also in basic mode
+    if args.basic:
+        log("[robot] BASIC MODE: motors, sensors, sensor map, obstacle stops and the dashboard only")
+    else:
+        robot.tasks = guarded("tasks", TaskList)
+        if robot.tasks is not None:
+            start("reminders", Reminders, robot, robot.tasks)
+        faces = start("faces", FaceWatcher, camera if camera_on else None)
+        robot.focus = start("focus timer", FocusTimer, robot, faces)
+        robot.people = start("face me + greeter", People, robot, faces) if camera_on else None
+        robot.assistant = guarded("assistant", Assistant, robot, enabled=not args.no_ai, groq_model=args.groq_model,
+                                  claude_model=args.claude_model)
+        if robot.assistant is not None:
+            log(f"[assistant] {robot.assistant.line()}")
+        extra_features(robot, args, start)   # newer features (24 Nov 2026), each guarded the same way
     https = None
     if server is not None and args.https_port:
         https = guarded("https", start_https, robot, camera, args.host, args.https_port)
     robot.https_port = args.https_port if https else None
     robot.dashboard_on = server is not None      # the dance's music plays on a dashboard page
 
-    print("\n=== ROBOT CONTROL ===  mode:", hw.mode, "| type 'help' for commands, Ctrl+C or 'quit' to exit")
+    print("\n=== ROBOT CONTROL ===  mode:", hw.mode + (" (BASIC)" if args.basic else ""), "| type 'help' for commands, Ctrl+C or 'quit' to exit")
     try:
         while True:
             try:
